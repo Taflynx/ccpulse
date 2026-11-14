@@ -1,0 +1,11 @@
+{
+  "name": "ccpulse-bar",
+  "version": "0.1.0",
+  "description": "A live usage bar above the Claude Code prompt (terminal and desktop): each plan limit's usage, pace vs. the cycle, risk of hitting it, and time to reset, from ccpulse.",
+  "author": { "name": "ccpulse contributors" },
+  "homepage": "https://github.com/Taflynx/ccpulse/tree/main/plugins/ccpulse-bar",
+  "repository": "https://github.com/Taflynx/ccpulse",
+  "license": "MIT",
+  "keywords": ["usage", "limits", "status", "ccpulse"],
+  "types": "./types/index.d.ts"
+}

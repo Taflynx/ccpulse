@@ -158,7 +158,7 @@ The Claude Code status line: used %, pace and cycle progress in one line.
 | `ccpulse insights` | Habits, heatmap, what-ifs |
 | `ccpulse dashboard [--open] [--port N]` | Local web dashboard (binds to 127.0.0.1) |
 | `ccpulse watch [--interval 5m] [--once] [--dry-run]` | Evaluate the alert rules and notify |
-| `ccpulse statusline` | One-line summary for Claude Code's status bar |
+| `ccpulse statusline [--json]` | One-line summary for Claude Code's status bar, or its JSON snapshot |
 | `ccpulse alerts test` | Send a test alert to every configured channel |
 | `ccpulse config init` | Create `~/.config/ccpulse/config.json` |
 
@@ -184,15 +184,49 @@ Pace alerts stay quiet when the simulated risk is low.
 
 All thresholds are configurable. See [docs/alerts.md](docs/alerts.md).
 
-## Status line
+## Inside Claude Code: the usage bar
 
-Add this to `~/.claude/settings.json`:
+<img src="docs/images/claude-bar.png" alt="ccpulse-bar above the Claude Code prompt: solid bars per limit with an even-pace notch, collapsed to one line, and the expanded table" width="100%">
 
-```json
-{ "statusLine": { "type": "command", "command": "npx -y ccpulse statusline" } }
+The **ccpulse-bar** plugin puts your limits above the prompt, in the terminal and in the desktop app:
+- **Collapsed (default):** one line, with a solid bar per limit and a notch where an even pace would be.
+- **Expanded (▸ Details, or `/pulse`):** an aligned table with used, cycle, pace, risk and reset.
+
+The color follows the risk: green, orange or red. The bar runs on macOS, Windows and Linux.
+
+```bash
+npm i -g ccpulse          # the CLI the bar reads (until the npm release: npm i -g github:Taflynx/ccpulse)
 ```
 
-The line reads `5h 36% 1.1×@33% │ wk 61% 1.3×@46% │ today $133→$327`: used %, pace, and @ how far through the cycle you are. Results are cached for 60 seconds, so refreshes take about 50 ms.
+Then, at the prompt of a Claude Code terminal session:
+
+```
+/plugin install ccpulse-bar --marketplace Taflynx/ccpulse
+```
+
+Answer `y` to add the marketplace, then press Enter for the user scope.
+
+In the desktop app:
+1. Click **+** next to the prompt box, then **Plugins**.
+2. Choose **Add marketplace** and enter `Taflynx/ccpulse`.
+3. Choose **Add plugin**.
+
+How the bar finds the CLI on each platform, and the `CCPULSE_BIN` override, are described in [plugins/ccpulse-bar](plugins/ccpulse-bar/README.md).
+
+## Status line
+
+For a one-line text summary at the bottom of the terminal:
+
+| Platform | Settings file |
+|---|---|
+| macOS / Linux | `~/.claude/settings.json` |
+| Windows | `%USERPROFILE%\.claude\settings.json` |
+
+```json
+{ "statusLine": { "type": "command", "command": "ccpulse statusline" } }
+```
+
+The line reads `Ultra │ wk 61% 2.1× ⚠92% ↻4d23h │ fable 68% 2.4× ⚠94% ↻4d23h │ today $192→$409`: plan, then each limit's used %, pace, risk and time to reset. Results are cached for 60 seconds, so refreshes take about 50 ms. `ccpulse statusline --json` gives the same snapshot as JSON for your own widgets.
 
 ## How it works
 

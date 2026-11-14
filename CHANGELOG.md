@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.0 — 2026-11-14
+
+- **ccpulse-bar, a Claude Code plugin:** a live usage bar above the prompt in the terminal and the desktop app.
+  - One line of solid bars by default, with an even-pace notch, used %, risk and reset.
+  - **▸ Details** or `/pulse` expands it to an aligned table.
+  - Colors follow the risk, in the theme's palette.
+  - Install with `/plugin install ccpulse-bar --marketplace Taflynx/ccpulse`.
+- **Cross-platform CLI discovery:**
+  - Windows goes through `cmd.exe`, so the npm `.cmd` shims resolve.
+  - On macOS and Linux, a login shell finds Homebrew, nvm and volta installs that desktop apps can't see.
+  - `CCPULSE_BIN` overrides both, and accepts a JSON array for paths with spaces.
+- `ccpulse statusline` is a quiet text summary (plan, used %, pace, risk, reset); `--json` returns the snapshot for integrations.
+
 ## 0.2.1 — 2026-11-14
 
 - **New plan lineup (2026-10-30):** Max 5x → **Max**, Max 20x → **Ultra**. Ultra has no 5-hour window (verified accounts) and 10× Pro weekly usage; ccpulse no longer shows a 5-hour window on Ultra.

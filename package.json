@@ -1,6 +1,6 @@
 {
   "name": "ccpulse",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Understand, learn from and forecast your Claude Code usage: cycle pace vs. limits, forecasts, anomaly alerts and a local dashboard.",
   "keywords": [
     "admin-api",

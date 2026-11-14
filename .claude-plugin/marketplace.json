@@ -1,0 +1,11 @@
+{
+  "name": "ccpulse",
+  "owner": { "name": "ccpulse contributors" },
+  "plugins": [
+    {
+      "name": "ccpulse-bar",
+      "source": "./plugins/ccpulse-bar",
+      "description": "A live usage bar above the Claude Code prompt: usage, pace, risk and reset for each plan limit."
+    }
+  ]
+}
