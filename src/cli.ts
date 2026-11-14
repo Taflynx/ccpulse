@@ -193,7 +193,7 @@ async function main(): Promise<void> {
       // Claude Code refreshes the status line often: serve a result up to 60s old.
       const { dirs } = await import('./paths.js');
       const { readFileSync, writeFileSync, mkdirSync, statSync } = await import('node:fs');
-      const file = path.join(dirs.cache(), `statusline-${cfg.metric}.txt`);
+      const file = path.join(dirs.cache(), `statusline-${cfg.metric}${json ? '.json' : '.txt'}`);
       try {
         if (!f.fresh && !demo && Date.now() - statSync(file).mtimeMs < 60_000) {
           process.stdout.write(readFileSync(file, 'utf8'));
@@ -203,7 +203,7 @@ async function main(): Promise<void> {
         /* no cache yet */
       }
       const a = await analyze(cfg, { offline, demo, anomalyDays: 1, light: true });
-      const out = renderStatusline(a) + '\n';
+      const out = (json ? JSON.stringify((await import('./commands.js')).statusSnapshot(a)) : renderStatusline(a)) + '\n';
       mkdirSync(path.dirname(file), { recursive: true });
       writeFileSync(file, out);
       process.stdout.write(out);

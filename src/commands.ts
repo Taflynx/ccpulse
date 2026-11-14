@@ -250,23 +250,86 @@ export function renderInsights(a: Analysis, cfg: Config): string {
   return out.join('\n');
 }
 
-export function renderStatusline(a: Analysis): string {
-  const parts: string[] = [];
-  for (const cy of a.cycles) {
-    const name = cy.key === 'five_hour' ? '5h' : cy.key === 'seven_day' ? 'wk' : cy.key.replace('seven_day_', 'wk-');
-    if (cy.used === undefined || cy.source === 'history') {
-      // No real limit: show spend, not a made-up percentage.
-      if (cy.usedCost > 0) parts.push(c.dim(`${name} `) + money(cy.usedCost));
-      continue;
-    }
-    const p = cy.pace !== undefined && cy.elapsed >= 0.05 ? ` ${cy.pace.toFixed(1)}×` : '';
-    const col = cy.status === 'critical' ? c.red : cy.status === 'warn' ? c.yellow : c.green;
-    parts.push(col(`${name} ${pct(cy.used)}${p}`) + c.dim(`@${pct(cy.elapsed)}`));
-  }
-  const f = a.forecast.today;
-  parts.push(`today ${money(a.totals.today.cost)}${c.dim(`→${money(f.value)}`)}`);
-  const recent = a.anomalies.find((x) => x.end > a.generatedAt - 2 * 3_600_000);
-  if (recent) parts.push(c.red('▲ spike'));
-  return parts.join(c.dim(' │ '));
+/** 10-cell bar: filled = used, ┃ = where an even pace would be now. */
+function miniBar(used: number, elapsed: number, cells = 10): string {
+  const fill = Math.round(Math.min(1, Math.max(0, used)) * cells);
+  const mark = Math.min(cells - 1, Math.max(0, Math.round(elapsed * cells) - (elapsed >= 1 ? 1 : 0)));
+  let out = '';
+  for (let i = 0; i < cells; i++) out += i === mark ? (i < fill ? '▓' : '┃') : i < fill ? '█' : '░';
+  return out;
 }
 
+function shortName(key: string): string {
+  if (key === 'five_hour') return '5h';
+  if (key === 'seven_day') return 'wk';
+  if (key.endsWith('_cap')) return key.replace('seven_day_', '').replace('_cap', '');
+  return key.replace('seven_day_', 'wk-');
+}
+
+function shortDur(ms: number): string {
+  const m = Math.max(0, Math.round(ms / 60_000));
+  const d = Math.floor(m / 1440);
+  const h = Math.floor((m % 1440) / 60);
+  return d ? `${d}d${h}h` : h ? `${h}h${m % 60}m` : `${m % 60}m`;
+}
+
+/** The compact state UI integrations draw (Claude Code band, status line, widgets). */
+export interface StatusSnapshot {
+  generatedAt: number;
+  plan: string;
+  cycles: {
+    key: string;
+    name: string;
+    label: string;
+    used: number;
+    elapsed: number;
+    pace?: number;
+    risk?: number;
+    status: string;
+    resetsIn: number;
+    resetsAt: number;
+    source: string;
+  }[];
+  today: { cost: number; forecast: number };
+  spike: boolean;
+}
+
+export function statusSnapshot(a: Analysis): StatusSnapshot {
+  return {
+    generatedAt: a.generatedAt,
+    plan: a.plan.label,
+    cycles: a.cycles
+      .filter((cy) => cy.used !== undefined && cy.source !== 'history' && cy.elapsed < 1)
+      .map((cy) => ({
+        key: cy.key,
+        name: shortName(cy.key),
+        label: cy.label,
+        used: cy.used!,
+        elapsed: cy.elapsed,
+        pace: cy.pace,
+        risk: cy.pHit,
+        status: cy.status,
+        resetsIn: Math.max(0, cy.end - a.generatedAt),
+        resetsAt: cy.end,
+        source: cy.source,
+      })),
+    today: { cost: a.totals.today.cost, forecast: a.forecast.today.value },
+    spike: a.anomalies.some((x) => x.end > a.generatedAt - 2 * 3_600_000),
+  };
+}
+
+export function renderStatusline(a: Analysis): string {
+  const snap = statusSnapshot(a);
+  const parts: string[] = [];
+  for (const cy of snap.cycles) {
+    const col = cy.status === 'critical' ? c.red : cy.status === 'warn' ? c.yellow : cy.status === 'watch' ? c.yellow : c.green;
+    const pace = cy.pace !== undefined && cy.elapsed >= 0.05 ? ` ${cy.pace.toFixed(1)}×` : '';
+    const risk = cy.risk !== undefined && cy.risk >= 0.05 ? col(` ⚠${Math.round(cy.risk * 100)}%`) : '';
+    parts.push(`${c.dim(cy.name)} ${col(miniBar(cy.used, cy.elapsed))} ${col(pct(cy.used))}${c.dim(pace)}${risk} ${c.dim('↻' + shortDur(cy.resetsIn))}`);
+  }
+  if (!snap.cycles.length)
+    for (const cy of a.cycles) if (cy.usedCost > 0) parts.push(c.dim(`${shortName(cy.key)} `) + money(cy.usedCost));
+  parts.push(`today ${money(snap.today.cost)}${c.dim(`→${money(snap.today.forecast)}`)}`);
+  if (snap.spike) parts.push(c.red('▲ spike'));
+  return parts.join(c.dim(' │ '));
+}
