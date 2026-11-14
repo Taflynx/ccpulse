@@ -35,6 +35,20 @@ export function evaluate(a: Analysis, cfg: Config): Alert[] {
           body: `Crossed ${crossed}%. You are ${where}.`,
         });
     }
+    // Probability first: a high pace is only worth a ping if it actually threatens the limit.
+    if (c.pHit !== undefined && c.pHit >= cfg.alerts.riskProbability && (c.used ?? 0) < 1) {
+      out.push({
+        key: `risk:${c.key}:${c.start}`,
+        level: c.pHit >= 0.8 ? 'critical' : 'warning',
+        title: `${c.label}: ${pct(c.pHit)} chance of hitting the limit before reset`,
+        body:
+          `Used ${pct(c.used ?? 0)} while ${where}.` +
+          (c.etaFull ? ` Most likely around ${clock.short(c.etaFull)}.` : '') +
+          (c.safeBurnPerHour !== undefined ? ` Sustainable: ≤ ${money(c.safeBurnPerHour)}/h (now ${money(c.burnPerHour)}/h).` : ''),
+      });
+      continue;
+    }
+    if (c.pHit !== undefined && c.pHit < 0.1) continue;
     if (c.pace !== undefined && c.elapsed >= 0.1 && c.pace >= cfg.alerts.pace && c.used !== undefined) {
       out.push({
         key: `pace:${c.key}:${c.start}`,
@@ -58,6 +72,31 @@ export function evaluate(a: Analysis, cfg: Config): Alert[] {
       });
     }
   }
+  // Organization API budgets, anomalies and spend-limit warnings.
+  if (a.api) {
+    const month = a.api.month.start;
+    for (const b of a.api.budgets) {
+      if (b.status !== 'critical' && b.status !== 'warn') continue;
+      out.push({
+        key: `budget:${b.name}:${month}:${b.status}`,
+        level: b.status === 'critical' ? 'critical' : 'warning',
+        title: `API budget "${b.name}": ${money(b.spend)} of ${money(b.monthly)} (${pct(b.used)})`,
+        body: `${pct(b.elapsed)} of the month has passed (pace ${b.pace.toFixed(2)}×). Projected month-end: ${money(b.projected)}.`,
+      });
+    }
+    for (const an of a.api.anomalies.filter((x) => x.t >= a.generatedAt - 2 * 86_400_000))
+      out.push({ key: `api-anomaly:${an.t}:${an.driver}`, level: 'warning', title: `Unusual API spend: ${money(an.usd)} in a day`, body: `Typical ${money(an.typical)}. Driver: ${an.driver}.` });
+    for (const h of a.api.hygiene.filter((x) => x.level === 'warn' && x.title.includes('spend limit')))
+      out.push({ key: `api-spendlimit:${month}`, level: 'critical', title: h.title, body: h.detail });
+  }
+  if (a.changePoint && a.changePoint.at >= a.generatedAt - 10 * 86_400_000)
+    out.push({
+      key: `regime:${a.changePoint.at}`,
+      level: 'info',
+      title: `Your usage pattern changed around ${a.changePoint.label}`,
+      body: `Typical day ${money(a.changePoint.before)} → ${money(a.changePoint.after)} (${a.changePoint.change >= 0 ? '+' : ''}${Math.round(a.changePoint.change * 100)}%). Forecasts adapt automatically.`,
+    });
+
   const recentCutoff = a.generatedAt - 3 * 3_600_000;
   for (const an of a.anomalies) {
     if (an.end < recentCutoff && an.kind !== 'day') continue;

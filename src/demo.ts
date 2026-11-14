@@ -87,7 +87,20 @@ export function demoData(now = Date.now(), tz?: string): Demo {
         cacheWrite1h: Math.floor(r() * r() * 9000),
         cacheRead: 20_000 + Math.floor(r() * 110_000),
       };
-      entries.push({ t, model, project: proj, sessionId: s.id, ...u, cost: costOf(model, u) });
+      const sub = r() < 0.22;
+      const effort = r() < 0.5 ? 'medium' : r() < 0.7 ? 'high' : 'low';
+      entries.push({
+        t,
+        model: sub && r() < 0.6 ? 'claude-sonnet-5.5' : model,
+        project: proj,
+        sessionId: s.id,
+        ...u,
+        cost: costOf(sub && r() < 0.6 ? 'claude-sonnet-5.5' : model, u),
+        thinking: Math.floor(u.output * (effort === 'high' ? 0.35 : effort === 'medium' ? 0.18 : 0.05)),
+        effort,
+        entrypoint: r() < 0.7 ? 'cli' : r() < 0.85 ? 'claude-desktop' : 'sdk-ts',
+        subagent: sub,
+      });
     }
   }
   entries.sort((a, b) => a.t - b.t);
@@ -101,9 +114,12 @@ export function demoData(now = Date.now(), tz?: string): Demo {
   const active = blocks.length && blocks[blocks.length - 1].end > now ? blocks[blocks.length - 1] : undefined;
   // Tell a clear story: the week runs ~1.35x ahead of even pace, the session ~1.1x, Opus on pace.
   const weekElapsed = Math.max(0.05, (now - weekFrom) / (7 * DAY));
-  const weeklyLimit = weekCost / Math.min(0.92, weekElapsed * 1.35);
+  const weeklyLimit = weekCost / Math.min(0.92, weekElapsed * 2.0);
   const sessElapsed = active ? Math.max(0.05, (now - active.start) / (5 * HOUR)) : 0.5;
-  const sessionLimit = Math.max(1, (active?.cost ?? 1) / Math.min(0.9, sessElapsed * 1.1));
+  // A young block says little about the limit: never go below a heavy past session.
+  const past = sessionBlocks(entries, clock, now - 30 * DAY).map((b) => b.cost).sort((a, b) => a - b);
+  const heavy = past.length ? past[Math.floor(past.length * 0.9)] * 1.05 : 1;
+  const sessionLimit = Math.max(heavy, (active?.cost ?? 1) / Math.min(0.9, sessElapsed * 1.1));
   const official: OfficialUsage = {
     fetchedAt: now,
     windows: [
@@ -115,9 +131,10 @@ export function demoData(now = Date.now(), tz?: string): Demo {
   // Pretend ccpulse has read the meter for a few weeks, so learned limits show up.
   const history: Snapshot[] = [];
   for (let k = 1; k <= 24; k++) {
-    const at = now - k * 7 * HOUR;
+    const at = now - k * 26 * HOUR;
     const util = 10 + ((k * 37) % 80);
-    history.push({ at, key: 'seven_day', utilization: util, resetsAt: reset, localCost: (weeklyLimit * util) / 100 * (0.95 + ((k * 13) % 10) / 100), localTokens: 0 });
+    const cycleReset = reset - Math.floor((reset - at) / (7 * DAY)) * 7 * DAY;
+    history.push({ at, key: 'seven_day', utilization: util, resetsAt: cycleReset, localCost: (weeklyLimit * util) / 100 * (0.95 + ((k * 13) % 10) / 100), localTokens: 0 });
     history.push({ at, key: 'five_hour', utilization: util, resetsAt: at + HOUR, localCost: (sessionLimit * util) / 100 * (0.93 + ((k * 7) % 12) / 100), localTokens: 0 });
   }
   return { entries, official, history };

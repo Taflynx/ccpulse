@@ -1,18 +1,23 @@
 {
   "name": "ccpulse",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Understand, learn from and forecast your Claude Code usage: cycle pace vs. limits, forecasts, anomaly alerts and a local dashboard.",
   "keywords": [
+    "admin-api",
+    "anomaly-detection",
+    "budget",
+    "ccusage",
     "claude",
     "claude-code",
-    "usage",
-    "tokens",
     "cost",
-    "forecast",
-    "anomaly-detection",
     "dashboard",
-    "ccusage",
-    "rate-limit"
+    "finops",
+    "forecast",
+    "monte-carlo",
+    "rate-limit",
+    "subscription",
+    "tokens",
+    "usage"
   ],
   "license": "MIT",
   "type": "module",
@@ -30,7 +35,7 @@
   },
   "scripts": {
     "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json && node scripts/copy-assets.mjs",
-    "test": "npm run build && node --test dist/core.test.js",
+    "test": "npm run build && node --test dist/core.test.js dist/pro.test.js",
     "dev": "npm run build && node dist/cli.js",
     "prepack": "npm run build",
     "shots": "npm run build && node scripts/shots.mjs",
@@ -47,5 +52,8 @@
   "homepage": "https://github.com/Taflynx/ccpulse#readme",
   "bugs": {
     "url": "https://github.com/Taflynx/ccpulse/issues"
+  },
+  "optionalDependencies": {
+    "@anthropic-ai/sdk": "^1.8.0"
   }
 }

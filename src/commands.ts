@@ -31,7 +31,8 @@ function cycleLines(cy: CycleStatus, clock: Clock, now: number, detailed: boolea
     bits.push(`pace ${p >= 1.25 ? c.red(p.toFixed(2) + '×') : p >= 1.05 ? c.yellow(p.toFixed(2) + '×') : c.green(p.toFixed(2) + '×')}`);
   }
   if (cy.end > now && cy.elapsed < 1) bits.push(`resets ${clock.short(cy.end)} (in ${duration(cy.end - now)})`);
-  if (cy.projected !== undefined) bits.push(`projected at reset ${cy.projected >= 1 ? c.red(pct(cy.projected)) : pct(cy.projected)}`);
+  if (cy.pHit !== undefined) bits.push(`risk ${cy.pHit >= 0.5 ? c.red(pct(cy.pHit)) : cy.pHit >= 0.2 ? c.yellow(pct(cy.pHit)) : c.green(pct(cy.pHit))}`);
+  if (cy.projected !== undefined) bits.push(`${cy.pHit !== undefined ? 'median' : 'projected'} at reset ${cy.projected >= 1 ? c.red(pct(cy.projected)) : pct(cy.projected)}`);
   if (cy.etaFull && cy.etaFull < cy.end) bits.push(c.red(`limit ≈ ${clock.short(cy.etaFull)} (${duration(cy.end - cy.etaFull)} early)`));
   bits.push(c.dim(`source: ${SOURCE_LABEL[cy.source]}`));
   lines.push('  ' + c.dim('↳ ') + bits.join(c.dim('  ·  ')));
@@ -52,7 +53,14 @@ export function renderOverview(a: Analysis, cfg: Config): string {
   const out: string[] = [];
   out.push(c.bold('ccpulse') + c.dim(`  ·  ${clock.dateTime(a.generatedAt)} ${a.timezone}  ·  ${a.entries.toLocaleString()} requests indexed`));
   out.push('');
-  out.push(c.bold('Cycles'));
+  const pv = a.planValue;
+  out.push(
+    `${c.bold('Plan')} ${a.plan.label}` +
+      (pv.period ? c.dim(`  ·  billing day ${pv.period.day}/${pv.period.days}`) : '') +
+      (pv.price ? c.dim(`  ·  value so far ${money(pv.valueSoFar)} = ${(pv.valueSoFar / pv.price).toFixed(1)}× the price`) : ''),
+  );
+  out.push('');
+  out.push(c.bold('Cycles') + c.dim('  (risk = chance of hitting the limit before reset, from 2,000 simulations)'));
   for (const cy of a.cycles) out.push(...cycleLines(cy, clock, a.generatedAt, false));
   if (!a.official.available) out.push(c.dim(`  ⓘ plan meter unavailable: ${a.official.reason}`));
   out.push('');
@@ -93,8 +101,13 @@ export function renderOverview(a: Analysis, cfg: Config): string {
     for (const an of recent) out.push(`  ${an.severity === 'extreme' ? c.red('▲') : c.yellow('▲')} ${an.label}\n${c.dim(wordWrap(an.explanation, 4))}`);
     out.push('');
   }
+  if (a.api) {
+    const m = a.api.month;
+    out.push(`${c.bold('API spend')} ${money(m.spend)} this month → ${c.bold(money(m.projected))} ${c.dim(`forecast · ${a.api.budgets.filter((b) => b.status === 'critical' || b.status === 'warn').length} budget(s) at risk · ccpulse api`)}`);
+    out.push('');
+  } else if (a.apiError && a.plan.adminConfigured) out.push(c.yellow('⚠ ' + a.apiError) + '\n');
   for (const w of a.warnings) out.push(c.yellow('⚠ ' + w));
-  out.push(c.dim('More: ccpulse pace | report daily | forecast | anomalies | insights | dashboard | watch'));
+  out.push(c.dim('More: ccpulse pace | plan | analyze | api | report daily | forecast | anomalies | insights | dashboard | watch'));
   return out.join('\n');
 }
 

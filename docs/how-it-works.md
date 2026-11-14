@@ -10,7 +10,11 @@ This page explains every number ccpulse shows: where it comes from, how it's com
 - [6. Forecasting](#6-forecasting)
 - [7. Anomaly detection](#7-anomaly-detection)
 - [8. Insights](#8-insights)
-- [9. Performance](#9-performance)
+- [9. Plan detection and value](#9-plan-detection-and-value)
+- [10. Limit risk: Monte Carlo](#10-limit-risk-monte-carlo)
+- [11. Deep analytics](#11-deep-analytics)
+- [12. Organization API analytics](#12-organization-api-analytics)
+- [13. Performance](#13-performance)
 
 ## 1. Data
 
@@ -212,11 +216,93 @@ Insights are short, data-backed observations. ccpulse only shows one when it's m
 - **Biggest riser** among projects.
 - **Cycle warnings** when a limit is projected before reset (never from history-based limits).
 
-## 9. Performance
+## 9. Plan detection and value
+
+Claude Code keeps plan metadata in `~/.claude.json` (`oauthAccount`) and `~/.claude/.credentials.json`. ccpulse reads only these fields:
+- `organizationType` and `subscriptionType`, which give Pro, Max, Team or Enterprise;
+- `rateLimitTier`, for example `default_claude_max_20x`, which gives the multiplier;
+- `planDisplayName`, `billingType` and `hasExtraUsageEnabled`;
+- `subscriptionCreatedAt`.
+
+Environment and settings show whether Claude Code is billing an API key, an `apiKeyHelper`, Bedrock, Vertex or Foundry. Tokens, e-mail addresses and names are never read into any output.
+
+**Billing cycle.** Stripe renews on the subscription's start timestamp each month (UTC), clamped to short months. `plan.billingDay` overrides it.
+
+**Value.** Your Claude Code usage in the cycle, priced at API list rates, then:
+- the projected value at renewal = actual so far + today's remainder + the daily forecast;
+- multiple = value ÷ price.
+
+The price is your tier's list price unless you set `plan.monthlyPrice`.
+
+**Advice** uses real plan-meter readings: the peak utilization of each weekly cycle over the last 4 weeks. Limits scale roughly with the tier (Max 5x ≈ ¼ of Max 20x), so:
+
+| Situation | Advice |
+|---|---|
+| ≥ 2 of the last 4 weeks at ≥ 95% | upgrade, enable extra usage, or move routine work to cheaper models |
+| Max 20x with the 90th-percentile weekly peak < 20% | Max 5x would have covered it |
+| Max 5x with the 90th-percentile weekly peak < 15% | check Pro |
+| fewer than 2 weekly cycles observed | not enough data yet |
+
+## 10. Limit risk: Monte Carlo
+
+A pace of 1.3× on Monday morning doesn't mean you'll run out. It depends on the rest of your week. ccpulse simulates the rest of every cycle that has a real 100% mark, 2,000 times, with a seeded generator so the same data gives the same answer.
+
+**Weekly windows.** Each simulated day draws an intensity multiplier `actual day ÷ expected day` from your last 56 days. This is a block bootstrap by day, so bursty days stay bursty. The draw is applied to your learned hour-of-week profile ([§5](#5-your-profile)). The current day blends 60% of the last 24 hours' observed intensity with 40% of a draw. Per-model windows scale by that model family's recent share.
+
+**5-hour windows.** A two-state Markov chain is learned from the last 30 days of hours:
+- `P(active → active)` and `P(idle → active)`;
+- hourly costs drawn from real active hours.
+
+The live burn rate only shapes the current hour, so one hot minute can't dominate a 5-hour projection.
+
+**Outputs:**
+- `P(hit before reset)`;
+- the 10th, 50th and 90th percentile of usage at reset;
+- the median time of reaching 100% among the futures that do;
+- a projection fan for the burn-down chart.
+
+The simulation's median replaces the point projection, and **status comes from probability**:
+
+| Status | Condition |
+|---|---|
+| critical | P ≥ 50% or ≥ 90% used |
+| warn | P ≥ 20% or ≥ 75% used |
+| watch | P ≥ 5% or pace ≥ `alerts.pace` |
+
+## 11. Deep analytics
+
+All computed over the last 30 days (`ccpulse analyze`, and the Deep analytics section of the dashboard).
+
+| Metric | Definition |
+|---|---|
+| **Cost anatomy** | Each response's cost split into uncached input, output (and its thinking part), 5-minute and 1-hour cache writes, and cache reads. "Without caching" re-prices every prompt token at the input rate |
+| **Prompt size** | input + cache write + cache read tokens per request: p50, p90, p99 |
+| **Requests over 200k** | Share of requests, and of cost, with prompts above 200k tokens (long-context tiers and heavy re-reads) |
+| **Context growth** | Median, across sessions with ≥ 10 main-thread requests, of the linear slope of prompt size per turn |
+| **Re-read above 100k** | Cache-read cost of the context beyond 100k tokens: roughly what earlier `/compact` or `/clear` saves |
+| **Cache reuse** | Cache reads ÷ cache writes: how many times each cached token is read back |
+| **Working sessions** | A session split at idle gaps of 2 hours or more, with at least 2 requests. Single-request runs are counted separately as one-shot automations |
+| **Breakdowns** | Share of cost and cost per request by effort level, main thread vs. subagents (sidechains and `subagents/` logs), and entry point (`cli`, `claude-desktop`, `sdk-ts`, …) |
+| **Model mix** | Weekly share of usage weight for the top 4 models plus "other" |
+| **Concentration** | Top-project and top-3 shares, and the Herfindahl–Hirschman index over projects (1 / HHI = "effective number of projects") |
+| **Regime change** | The single most significant level shift in daily usage over 90 days: a split point with ≥ 7 days on each side, maximizing a Welch t statistic on `log1p(daily)`. It is reported when t ≥ 4 and the median moved ≥ 30% |
+
+Findings that matter become insights automatically. Examples: "52% of cost comes from 200k+ context", "cache writes are 53% of cost", "subagents are 30% of cost".
+
+## 12. Organization API analytics
+
+With an Admin API key, ccpulse reads the [Usage and Cost Analytics API](https://platform.claude.com/docs/en/manage-claude/usage-cost-analytics-api) through the official SDK (`client.beta.organization.analytics.cost/usage.list`):
+- daily buckets grouped by model, workspace, API key and product, paged in windows of at most 31 days;
+- API keys, workspaces, rate limits and spend limits.
+
+The daily spend series goes through the same online-tuned forecaster as your own usage. Budgets use the same pace logic as plan cycles, on the calendar month. Details and commands: [api.md](api.md).
+
+## 13. Performance
 
 | | |
 |---|---|
 | First run | ~40 s for ~5 GB / 20k files (one streaming pass, JSON parsed only for assistant lines with usage) |
 | Later runs | ~2 s (read the appended tail, load the gzip index, analyze ~100k responses) |
 | Status line | ~50 ms (60 s result cache) |
-| Package | ~50 kB, zero runtime dependencies |
+| Monte Carlo | 2,000 simulations × each cycle, well under a second |
+| Package | ~85 kB, no required runtime dependencies (the Anthropic SDK is optional, for API commands) |

@@ -88,58 +88,7 @@ export function forecast(entries: Entry[], clock: Clock, metric: Metric, profile
   const complete = dailySeries(entries, clock, metric, histFrom, todayStart);
   const todayActual = dailySeries(entries, clock, metric, todayStart, now + 1)[0]?.value ?? 0;
 
-  // Online self-tuning: on any given day, the smoothing factor is the one that best predicted
-  // the 42 days before it. The model adapts to regime changes, and every backtest prediction
-  // is strictly out-of-sample (the reported accuracy is honest).
-  const ALPHAS = [0.1, 0.2, 0.3, 0.5, 0.7];
-  const n = complete.length;
-  const memo = new Map<string, number>();
-  const pred = (i: number, a: number) => {
-    const k = `${i}:${a}`;
-    let v = memo.get(k);
-    if (v === undefined) memo.set(k, (v = predictDay(complete.slice(0, i), complete[i]?.wi ?? 0, a)));
-    return v;
-  };
-  const bestAlpha = (upTo: number) => {
-    let best = 0.3;
-    let bestW = Infinity;
-    for (const a of ALPHAS) {
-      let e = 0;
-      let act = 0;
-      for (let i = Math.max(14, upTo - 42); i < upTo; i++) {
-        e += Math.abs(complete[i].value - pred(i, a));
-        act += complete[i].value;
-      }
-      const w = act ? e / act : Infinity;
-      if (w < bestW) [bestW, best] = [w, a];
-    }
-    return best;
-  };
-  const evalFrom = Math.max(28, n - 42);
-  const alpha = bestAlpha(n);
-
-  const ratios: number[] = [];
-  let absErr = 0;
-  let absAct = 0;
-  let inside = 0;
-  const btDays = Math.max(0, n - evalFrom);
-  const preds: number[] = [];
-  for (let i = evalFrom; i < n; i++) {
-    const p = pred(i, bestAlpha(i));
-    preds.push(p);
-    const a = complete[i].value;
-    absErr += Math.abs(a - p);
-    absAct += a;
-    if (p > 0) ratios.push(a / p);
-  }
-  const qlo = ratios.length >= 10 ? quantile(ratios, 0.1) : 0.4;
-  const qhi = ratios.length >= 10 ? quantile(ratios, 0.9) : 2.0;
-  for (let i = evalFrom; i < n; i++) {
-    const p = preds[i - evalFrom];
-    const a = complete[i].value;
-    if (a >= p * qlo && a <= p * qhi) inside++;
-  }
-
+  const { alpha, qlo, qhi, wape, coverage, btDays } = learnSeries(complete);
   const band = (v: number) => ({ value: v, lo: v * clamp(qlo, 0, 1), hi: v * Math.max(qhi, 1) });
 
   // Today: what is already done plus the expected rest of the day from the hourly profile.
@@ -220,8 +169,74 @@ export function forecast(entries: Entry[], clock: Clock, metric: Metric, profile
     month: period('This month', monthStart, monthEnd, sumRange(prevMonthStart, monthStart)),
     nextMonth: period('Next month', monthEnd, nextMonthEnd),
     weeklyTrend: { slopePct: wMean ? lt.slope / wMean : 0, r2: lt.r2, weeks: weeks.length },
-    accuracy: { wape: absAct ? absErr / absAct : NaN, days: btDays, coverage: btDays ? inside / btDays : NaN },
+    accuracy: { wape, days: btDays, coverage },
     alpha,
     model: `seasonal exponential smoothing (weekday × level, online-tuned α=${alpha}), empirical 10–90% bands`,
   };
+}
+
+export interface Learned {
+  alpha: number;
+  /** 10th / 90th percentile of actual ÷ predicted on the backtest (the 80% band). */
+  qlo: number;
+  qhi: number;
+  wape: number;
+  coverage: number;
+  btDays: number;
+}
+
+/**
+ * Online self-tuning: on any given day, the smoothing factor is the one that best predicted
+ * the 42 days before it. The model adapts to regime changes, and every backtest prediction
+ * is strictly out-of-sample (the reported accuracy is honest). Reused for API spend series.
+ */
+export function learnSeries(complete: DayPoint[]): Learned {
+  const ALPHAS = [0.1, 0.2, 0.3, 0.5, 0.7];
+  const n = complete.length;
+  const memo = new Map<string, number>();
+  const pred = (i: number, a: number) => {
+    const k = `${i}:${a}`;
+    let v = memo.get(k);
+    if (v === undefined) memo.set(k, (v = predictDay(complete.slice(0, i), complete[i]?.wi ?? 0, a)));
+    return v;
+  };
+  const bestAlpha = (upTo: number) => {
+    let best = 0.3;
+    let bestW = Infinity;
+    for (const a of ALPHAS) {
+      let e = 0;
+      let act = 0;
+      for (let i = Math.max(14, upTo - 42); i < upTo; i++) {
+        e += Math.abs(complete[i].value - pred(i, a));
+        act += complete[i].value;
+      }
+      const w = act ? e / act : Infinity;
+      if (w < bestW) [bestW, best] = [w, a];
+    }
+    return best;
+  };
+  const evalFrom = Math.max(28, n - 42);
+  const alpha = bestAlpha(n);
+  const ratios: number[] = [];
+  const preds: number[] = [];
+  let absErr = 0;
+  let absAct = 0;
+  for (let i = evalFrom; i < n; i++) {
+    const p = pred(i, bestAlpha(i));
+    preds.push(p);
+    const a = complete[i].value;
+    absErr += Math.abs(a - p);
+    absAct += a;
+    if (p > 0) ratios.push(a / p);
+  }
+  const qlo = ratios.length >= 10 ? quantile(ratios, 0.1) : 0.4;
+  const qhi = ratios.length >= 10 ? quantile(ratios, 0.9) : 2.0;
+  let inside = 0;
+  for (let i = evalFrom; i < n; i++) {
+    const p = preds[i - evalFrom];
+    const a = complete[i].value;
+    if (a >= p * qlo && a <= p * qhi) inside++;
+  }
+  const btDays = Math.max(0, n - evalFrom);
+  return { alpha, qlo, qhi, wape: absAct ? absErr / absAct : NaN, coverage: btDays ? inside / btDays : NaN, btDays };
 }

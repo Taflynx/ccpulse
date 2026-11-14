@@ -14,10 +14,15 @@ ccpulse alerts test           # send a test alert to every channel
 
 | Alert | Fires when | Level |
 |---|---|---|
-| **Pace** | used ÷ elapsed ≥ `alerts.pace` (1.25) after 10% of the cycle | warning; critical at 1.4 × `alerts.pace` (1.75 by default) |
-| **Projected exhaustion** | the projection reaches 100% before reset | critical |
+| **Limit risk** | Monte Carlo P(hit before reset) ≥ `alerts.riskProbability` (50%) | warning; critical at 80% |
+| **Pace** | used ÷ elapsed ≥ `alerts.pace` (1.25) after 10% of the cycle, *and* simulated risk ≥ 10% | warning; critical at 1.4 × `alerts.pace` (1.75 by default) |
+| **Projected exhaustion** | the projection reaches 100% before reset (only when no simulation is available) | critical |
 | **Threshold** | utilization crosses each of `alerts.thresholds` (50/75/90). Fires once per cycle | warning; critical at 90%+ |
 | **Anomaly** | an unusual hour or session in the last 3 h, or an unusual day today | warning; critical if extreme |
+| **API budget** | a budget is pacing ahead (`warn`) or projected over (`critical`) | once per budget, state and month |
+| **API spend limit** | month-end forecast ≥ 95% of the organization's monthly spend limit | critical, once per month |
+| **API anomaly** | an unusual day of org spend, or a key bursting above its own norm | warning |
+| **Regime change** | your daily usage level shifted significantly in the last 10 days | info |
 
 Limit alerts (pace, projection, thresholds) need a real 100% mark: the plan meter, a learned limit or your config. They never fire against history-based baselines.
 

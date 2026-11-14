@@ -8,9 +8,13 @@ import type { Entry } from './types.js';
 
 /**
  * Compact row as stored in the incremental cache:
- * [t, model, speed, sessionId, project, input, output, cw5m, cw1h, cacheRead, messageId, requestId, sidechain]
+ * [t, model, speed, sessionId, project, input, output, cw5m, cw1h, cacheRead, messageId, requestId, sidechain,
+ *  thinkingTokens, effort, entrypoint, subagent, webSearchRequests]
  */
-type Row = [number, string, string, string, string, number, number, number, number, number, string, string, 0 | 1];
+export type Row = [
+  number, string, string, string, string, number, number, number, number, number, string, string, 0 | 1,
+  number, string, string, 0 | 1, number,
+];
 
 interface FileState {
   size: number;
@@ -25,7 +29,7 @@ interface CacheFile {
   files: Record<string, FileState>;
 }
 
-const CACHE_VERSION = 1;
+const CACHE_VERSION = 2;
 
 function cachePath(): string {
   return path.join(dirs.cache(), `entries-v${CACHE_VERSION}.json.gz`);
@@ -71,7 +75,7 @@ function projectFromPath(root: string, file: string): string {
   return rel.replace(/^-/, '').split('-').filter(Boolean).slice(-1)[0] ?? rel;
 }
 
-export function parseLine(line: string, fallbackProject: string): Row | undefined {
+export function parseLine(line: string, fallbackProject: string, subagentFile = false): Row | undefined {
   if (!line.includes('"usage"') || !line.includes('"assistant"')) return undefined;
   let j: any;
   try {
@@ -109,6 +113,11 @@ export function parseLine(line: string, fallbackProject: string): Row | undefine
     String(msg.id ?? ''),
     String(j.requestId ?? ''),
     j.isSidechain === true ? 1 : 0,
+    num(u.output_tokens_details?.thinking_tokens),
+    typeof j.effort === 'string' ? j.effort : '',
+    typeof j.entrypoint === 'string' ? j.entrypoint : '',
+    subagentFile || j.isSidechain === true || typeof j.agentId === 'string' ? 1 : 0,
+    num(u.server_tool_use?.web_search_requests),
   ];
 }
 
@@ -118,6 +127,7 @@ function num(v: unknown): number {
 
 /** Parse `file` from `start`, returning new rows and the offset after the last full line. */
 async function parseFrom(file: string, start: number, project: string): Promise<{ rows: Row[]; offset: number }> {
+  const sub = file.includes(`${path.sep}subagents${path.sep}`);
   const rows: Row[] = [];
   let offset = start;
   let carry = '';
@@ -129,7 +139,7 @@ async function parseFrom(file: string, start: number, project: string): Promise<
     while ((nl = text.indexOf('\n', from)) !== -1) {
       const line = text.slice(from, nl);
       offset += Buffer.byteLength(line, 'utf8') + 1;
-      const r = parseLine(line, project);
+      const r = parseLine(line, project, sub);
       if (r) rows.push(r);
       from = nl + 1;
     }
@@ -138,7 +148,7 @@ async function parseFrom(file: string, start: number, project: string): Promise<
   // A trailing line without newline may still be in the middle of being written:
   // only take it if it parses, and do not advance the offset past it.
   if (carry.trim()) {
-    const r = parseLine(carry, project);
+    const r = parseLine(carry, project, sub);
     if (r) rows.push(r);
   }
   return { rows, offset };
@@ -233,7 +243,7 @@ export function dedupe(rows: Row[]): Entry[] {
   const out: Entry[] = [];
   rows.sort((a, b) => a[0] - b[0] || a[12] - b[12]);
   for (const r of rows) {
-    const [t, rawModel, speed, sessionId, project, input, output, cw5m, cw1h, cacheRead, msgId, reqId, side] = r;
+    const [t, rawModel, speed, sessionId, project, input, output, cw5m, cw1h, cacheRead, msgId, reqId, side, thinking, effort, entrypoint, subagent, webSearch] = r;
     if (side && msgId && mainIds.has(msgId)) continue;
     let key: string;
     if (reqId) key = `${msgId}|${reqId}`;
@@ -252,6 +262,11 @@ export function dedupe(rows: Row[]): Entry[] {
       ...u,
       speed: speed || undefined,
       cost: costOf(model, u, speed || undefined),
+      thinking: thinking ?? 0,
+      effort: effort || undefined,
+      entrypoint: entrypoint || undefined,
+      subagent: subagent === 1,
+      webSearch: webSearch ?? 0,
     });
   }
   return out;

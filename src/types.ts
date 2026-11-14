@@ -18,6 +18,15 @@ export interface Entry {
   speed?: string;
   /** API-equivalent cost in USD. */
   cost: number;
+  /** Output tokens spent on thinking (subset of `output`). */
+  thinking?: number;
+  /** Effort level Claude Code requested (`low`, `medium`, `high`, …). */
+  effort?: string;
+  /** Where the request came from: `cli`, `claude-desktop`, `sdk-ts`, `sdk-cli`, … */
+  entrypoint?: string;
+  /** Produced by a subagent / sidechain (Task tool, /btw). */
+  subagent?: boolean;
+  webSearch?: number;
 }
 
 export interface Totals {

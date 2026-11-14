@@ -30,6 +30,8 @@ export interface CycleStatus {
   projected?: number;
   /** When the limit is projected to be reached, if before reset. */
   etaFull?: number;
+  /** Monte Carlo probability of reaching 100% before reset (when simulated). */
+  pHit?: number;
   /** Cost per hour you can still burn evenly and land exactly at 100% at reset. */
   safeBurnPerHour?: number;
   /** Recent burn rate in cost per hour. */

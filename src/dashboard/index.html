@@ -12,6 +12,7 @@
   --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10);
   --s1: #2a78d6; --s1-soft: #86b6ef; --s1-wash: rgba(42,120,214,0.10);
   --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b; --good-text: #006300;
+  --c1: #2a78d6; --c2: #eb6834; --c3: #1baf7a; --c4: #eda100; --c-other: #b5b3ab;
   --seq-0: #f0efec; --seq-1: #cde2fb; --seq-2: #9ec5f4; --seq-3: #6da7ec; --seq-4: #3987e5; --seq-5: #256abf; --seq-6: #184f95; --seq-7: #0d366b;
 }
 @media (prefers-color-scheme: dark) {
@@ -19,7 +20,7 @@
     color-scheme: dark;
     --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
     --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
-    --s1: #3987e5; --s1-soft: #86b6ef; --s1-wash: rgba(57,135,229,0.14); --good-text: #0ca30c;
+    --s1: #3987e5; --s1-soft: #86b6ef; --s1-wash: rgba(57,135,229,0.14); --good-text: #0ca30c; --c1: #3987e5; --c2: #d95926; --c3: #199e70; --c4: #c98500; --c-other: #5c5b56;
     --seq-0: #262624; --seq-1: #0d366b; --seq-2: #104281; --seq-3: #184f95; --seq-4: #1c5cab; --seq-5: #2a78d6; --seq-6: #5598e7; --seq-7: #9ec5f4;
   }
 }
@@ -27,7 +28,7 @@
   color-scheme: dark;
   --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
   --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
-  --s1: #3987e5; --s1-soft: #86b6ef; --s1-wash: rgba(57,135,229,0.14); --good-text: #0ca30c;
+  --s1: #3987e5; --s1-soft: #86b6ef; --s1-wash: rgba(57,135,229,0.14); --good-text: #0ca30c; --c1: #3987e5; --c2: #d95926; --c3: #199e70; --c4: #c98500; --c-other: #5c5b56;
   --seq-0: #262624; --seq-1: #0d366b; --seq-2: #104281; --seq-3: #184f95; --seq-4: #1c5cab; --seq-5: #2a78d6; --seq-6: #5598e7; --seq-7: #9ec5f4;
 }
 * { box-sizing: border-box; }
@@ -86,6 +87,26 @@ details summary { cursor: pointer; color: var(--ink-2); font-size: 12px; margin-
 .err { background: var(--surface); border: 1px solid var(--critical); border-radius: 12px; padding: 12px 16px; margin-bottom: 12px; }
 .scroll { overflow-x: auto; }
 footer { color: var(--muted); font-size: 11px; margin-top: 24px; }
+.planbar { display: flex; flex-wrap: wrap; gap: 10px 28px; align-items: center; margin-bottom: 12px; }
+.planbar .item { min-width: 0; }
+.planbar .v { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
+.planbar .grow { flex: 1 1 260px; }
+.mini { margin-top: 10px; }
+.risk { display: flex; align-items: baseline; gap: 8px; margin-top: 10px; font-size: 13px; }
+.risk b { font-size: 20px; letter-spacing: -0.01em; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 16px; }
+.stat .k { color: var(--muted); font-size: 12px; }
+.stat .v { font-size: 20px; font-weight: 600; letter-spacing: -0.01em; }
+.stat .s { color: var(--ink-2); font-size: 12px; }
+.stack { display: flex; height: 22px; border-radius: 6px; overflow: hidden; gap: 2px; background: var(--surface); margin: 6px 0 10px; }
+.stack i { display: block; height: 100%; }
+.sec-title { margin: 28px 0 10px; font-size: 13px; font-weight: 600; color: var(--ink-2); text-transform: uppercase; letter-spacing: 0.06em; }
+.api-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 12px; }
+.budget { display: grid; grid-template-columns: 120px 1fr auto; gap: 4px 12px; align-items: center; font-size: 12px; margin: 6px 0; }
+.hidden { display: none !important; }
+body[data-focus] main > :not(header) { display: none; }
+body[data-focus="deep"] main > #deep-section, body[data-focus="api"] main > #api-section { display: block; }
+body[data-focus] .sec-title:first-child { margin-top: 4px; }
 </style>
 </head>
 <body>
@@ -99,6 +120,7 @@ footer { color: var(--muted); font-size: 11px; margin-top: 24px; }
   </header>
   <div id="error"></div>
 
+  <section aria-label="Plan" class="card planbar" id="planbar"></section>
   <section aria-label="Cycles" class="grid cards" id="cycles"></section>
   <section aria-label="Totals and forecast" class="grid cards" id="tiles"></section>
 
@@ -146,7 +168,67 @@ footer { color: var(--muted); font-size: 11px; margin-top: 24px; }
     </section>
   </div>
 
+  <div id="deep-section">
+  <h2 class="sec-title">Deep analytics · last 30 days</h2>
   <div class="grid two">
+    <section class="card" aria-labelledby="anat-title">
+      <h2 id="anat-title">Where the cost goes</h2>
+      <p class="sub" id="anat-sub"></p>
+      <div id="anatomy"></div>
+    </section>
+    <section class="card" aria-labelledby="ctx-title">
+      <h2 id="ctx-title">Context economics</h2>
+      <p class="sub">How much context each request carries, and what it costs.</p>
+      <div class="stats" id="context"></div>
+    </section>
+  </div>
+  <section class="card" aria-labelledby="mix-title" style="margin-top:12px">
+    <h2 id="mix-title">Model mix by week</h2>
+    <p class="sub">Share of usage weight. Expensive models use plan limits faster for the same work.</p>
+    <div class="legend" id="mix-legend"></div>
+    <div class="chart" id="mix"></div>
+  </section>
+  <div class="grid two">
+    <section class="card" aria-labelledby="ses-title">
+      <h2 id="ses-title">Working sessions</h2>
+      <p class="sub" id="ses-sub"></p>
+      <div class="scroll" id="sessions"></div>
+    </section>
+    <section class="card" aria-labelledby="bd-title">
+      <h2 id="bd-title">Breakdowns</h2>
+      <p class="sub">Share of cost and cost per request.</p>
+      <div id="breakdowns"></div>
+    </section>
+  </div>
+
+  </div>
+
+  <div id="api-section" class="hidden">
+    <h2 class="sec-title" id="api-heading">API spend</h2>
+    <div class="api-tiles" id="api-tiles"></div>
+    <div class="grid two" style="margin-top:0">
+      <section class="card">
+        <h2>Daily spend</h2>
+        <p class="sub" id="api-chart-sub"></p>
+        <div class="legend"><span><i class="key" style="background:var(--s1)"></i>Actual</span><span><i class="key" style="background:var(--s1-soft)"></i>Forecast, with 80% range</span></div>
+        <div class="chart" id="api-chart"></div>
+      </section>
+      <section class="card">
+        <h2>Budgets</h2>
+        <p class="sub">Calendar month · │ marks an even pace.</p>
+        <div id="api-budgets"></div>
+        <h2 style="margin-top:16px">Recommendations</h2>
+        <div id="api-hygiene"></div>
+      </section>
+    </div>
+    <div class="grid two">
+      <section class="card"><h2>By workspace</h2><p class="sub">This month.</p><div class="scroll" id="api-ws"></div></section>
+      <section class="card"><h2>By API key</h2><p class="sub">This month · last used.</p><div class="scroll" id="api-keys"></div></section>
+    </div>
+  </div>
+
+  <h2 class="sec-title">Where it goes · last 30 days</h2>
+  <div class="grid two" style="margin-top:0">
     <section class="card" aria-labelledby="m-title">
       <h2 id="m-title">Models</h2>
       <p class="sub">Last 30 days, share of usage weight.</p>

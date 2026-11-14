@@ -7,13 +7,13 @@
 
 <p align="center">
   <b>Understand, learn from and forecast your Claude Code usage.</b><br>
-  Cycle pace · limit forecasts · anomaly detection · alerts · a local dashboard. Zero dependencies, 100% local.
+  Plan & API awareness · Monte Carlo limit risk · forecasts · anomaly detection · deep cost analytics · alerts · a local dashboard.
 </p>
 
 <p align="center">
   <a href="https://github.com/Taflynx/ccpulse/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Taflynx/ccpulse/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="Node 20+" src="https://img.shields.io/badge/node-%E2%89%A520-2a78d6">
-  <img alt="Dependencies: 0" src="https://img.shields.io/badge/dependencies-0-1baf7a">
+  <img alt="Required dependencies: 0" src="https://img.shields.io/badge/required%20deps-0-1baf7a">
   <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-6250d6"></a>
 </p>
 
@@ -32,8 +32,11 @@ ccpulse answers it. It reads the logs Claude Code already writes on your machine
 
 | | |
 |---|---|
+| **🪪 What you're on** | Detects your plan (Pro, Max 5x/20x, Team, Enterprise, API, Bedrock/Vertex), tier, billing cycle and extra usage, then shows what your usage was **worth vs. what you pay** and whether a different plan fits |
 | **⏱ Where you are in the cycle** | Used % vs. elapsed % for the session and weekly windows, and your **pace** (1.33× = burning a third faster than the clock) |
-| **🔮 Whether you'll make it** | Projected usage at reset, the **time you'll hit 100%**, and the hourly burn rate that lands you exactly at the line |
+| **🎲 Whether you'll make it** | The **probability** of hitting each limit before it resets, from 2,000 simulated futures of *your* usage, plus the likely time, the 10–90% range at reset, and a burn-down chart |
+| **🏢 Your API spend** | With an Admin key: month-to-date and month-end forecast, budgets with pace, spend by workspace, key and model, anomalies, key hygiene, and key / spend-limit management |
+| **🔬 Where the money goes** | Cost anatomy by token type, context economics (200k+ prompts, growth per turn, what `/compact` would save), sessions, effort levels, subagents, model mix over time, regime changes |
 | **📈 What's coming** | Forecasts for today, this week, this month and next month, with 80% ranges and **honest, out-of-sample accuracy** |
 | **🚨 What's unusual** | Spikes by hour, day and working session, judged against *your* history, with the project and model behind each one |
 | **🧠 Your habits** | Peak hours, typical-week heatmap, model mix, cache efficiency, "what if I used Sonnet for routine work" |
@@ -44,6 +47,8 @@ ccpulse answers it. It reads the logs Claude Code already writes on your machine
 ```bash
 npx ccpulse            # overview in your terminal
 npx ccpulse dashboard  # local dashboard at http://127.0.0.1:4477
+npx ccpulse plan       # your plan, billing cycle, value vs. price, advice
+npx ccpulse analyze    # deep analytics: risk, cost anatomy, context, sessions
 npx ccpulse --demo     # try everything on realistic synthetic data
 ```
 
@@ -56,6 +61,48 @@ Requirements: Node.js 20 or newer, and Claude Code used on this machine. Before 
 <img src="docs/images/cli-pace.png" alt="ccpulse pace: session and weekly windows with used vs. elapsed, pace, projected usage at reset, limit ETA and sustainable burn rate" width="100%">
 
 Each bar shows how much of the window you've used. The **│** marks where an even pace would put you right now. When usage is ahead of the marker, ccpulse projects the rest of the cycle from your learned weekly rhythm and tells you when you'd hit the limit and how much hourly burn is sustainable.
+
+### Your plan, and what it's worth
+
+<img src="docs/images/cli-plan.png" alt="ccpulse plan: plan and tier, billing cycle progress, API-equivalent value vs. price for this and previous cycles, and plan advice" width="100%">
+
+ccpulse reads your plan straight from Claude Code's local config (it never reads your e-mail, name or tokens): the plan and tier, the billing type, whether extra usage is on, and when the subscription renews. It then prices this cycle's usage at API rates, so you can see how many times over the plan paid for itself. From real weekly peaks it tells you whether a different tier would fit better.
+
+### Probability, not a straight line
+
+<img src="docs/images/dashboard-deep.png" alt="Deep analytics: cost anatomy by token type, context economics, weekly model mix, working sessions and breakdowns by effort, subagents and entry point" width="100%">
+
+A straight-line projection says "you'll run out Thursday" every Monday morning, and then the weekend happens. ccpulse instead simulates the rest of the cycle 2,000 times:
+- **Weekly windows:** each simulated day draws an intensity from your own history and applies it to your learned hourly rhythm.
+- **5-hour windows:** a Markov chain models whether you keep working, using real hourly burn.
+
+You get the **chance** of hitting the limit, the likely time, and the 10–90% range at reset. Pace alerts stay quiet when the risk is low.
+
+`ccpulse analyze` also breaks the last 30 days down by:
+- token type (are cache writes your biggest cost?);
+- context size (how much of your cost is 200k+ prompts?);
+- effort level, subagents vs. main thread, and entry point;
+- the weekly model mix.
+
+It also flags the day your usage pattern changed.
+
+<details>
+<summary><b>See <code>ccpulse analyze</code> in the terminal</b></summary>
+
+<img src="docs/images/cli-analyze.png" alt="ccpulse analyze output" width="100%">
+</details>
+
+### Your API spend, managed
+
+<img src="docs/images/dashboard-api.png" alt="API spend: month to date, month-end forecast, budgets with pace, daily spend with forecast, recommendations, spend by workspace and key" width="100%">
+
+With an Admin API key, ccpulse adds your organization's API spend next to your subscription:
+- month to date and a month-end forecast with a range;
+- budgets per workspace, key or model, with pace alerts;
+- the workspace and key behind every spike;
+- recommendations: projected spend-limit overruns, unused or expiring keys, and low cache hit rates.
+
+You can also disable, enable, archive and rename keys, and set spend limits, all from the terminal. See **[docs/api.md](docs/api.md)**.
 
 ### Forecasts with receipts
 
@@ -101,7 +148,10 @@ The Claude Code status line: used %, pace and cycle progress in one line.
 | Command | |
 |---|---|
 | `ccpulse` | Overview: cycles, forecast, last 48 h vs. normal, top insights and anomalies |
-| `ccpulse pace` | Cycle detail: pace, projection, limit ETA, burn and sustainable burn, learned limits |
+| `ccpulse pace` | Cycle detail: pace, risk, burn and sustainable burn, learned limits |
+| `ccpulse plan` | Plan, tier, billing cycle, value vs. price, plan advice |
+| `ccpulse analyze` | Monte Carlo limit risk, cost anatomy, context economics, sessions, effort / subagent / entry-point breakdowns, model mix, regime change |
+| `ccpulse api [keys\|workspaces\|limits\|spend-limits]` | Organization API spend and management ([docs/api.md](docs/api.md)) |
 | `ccpulse report <hourly\|daily\|weekly\|monthly> [-n N] [--by model\|project]` | Usage tables with Δ vs. the previous period |
 | `ccpulse forecast` | Today / week / month / next month, the next 7 days, trend, accuracy |
 | `ccpulse anomalies [--days N]` | Unusual hours, days and working sessions |
@@ -112,7 +162,7 @@ The Claude Code status line: used %, pace and cycle progress in one line.
 | `ccpulse alerts test` | Send a test alert to every configured channel |
 | `ccpulse config init` | Create `~/.config/ccpulse/config.json` |
 
-Global flags: `--json`, `--metric cost|tokens`, `--tz <zone>`, `--week-start monday|sunday`, `--offline`, `--fresh`, `--demo` and `--no-color`.
+Global flags: `--json`, `--metric cost|tokens`, `--tz <zone>`, `--week-start monday|sunday`, `--offline`, `--fresh`, `--demo` and `--no-color`. API commands add `--yes` and `--period`.
 
 ## Alerts in two minutes
 
@@ -124,10 +174,13 @@ ccpulse watch                        # or run `ccpulse watch --once` from cron /
 ```
 
 You get alerted when:
-- your **pace** crosses 1.25×;
-- the projection says you'll **hit the limit before reset**;
+- the chance of **hitting a limit before reset** reaches 50%;
 - you cross **50 / 75 / 90%** of a window;
-- an hour, day or session is **unusual for you**.
+- an hour, day or session is **unusual for you**;
+- an **API budget** paces over or is projected over;
+- API spend is heading past your **organization spend limit**.
+
+Pace alerts stay quiet when the simulated risk is low.
 
 All thresholds are configurable. See [docs/alerts.md](docs/alerts.md).
 
@@ -143,7 +196,7 @@ The line reads `5h 36% 1.1×@33% │ wk 61% 1.3×@46% │ today $133→$327`: us
 
 ## How it works
 
-ccpulse is built from five layers. Each one is documented in depth in [docs/how-it-works.md](docs/how-it-works.md).
+ccpulse is built from these layers. Each one is documented in depth in [docs/how-it-works.md](docs/how-it-works.md).
 
 1. **Index.** It reads `~/.claude/projects/**/*.jsonl` incrementally and deduplicates responses with the same rules as [ccusage](https://github.com/ccusage/ccusage); its daily totals match ccusage's.
 2. **Price.** Every response is priced at API-equivalent cost, including 1-hour cache writes and long-context tiers. Cost weights tokens by model, which tracks plan limits better than raw token counts.
@@ -154,11 +207,14 @@ ccpulse is built from five layers. Each one is documented in depth in [docs/how-
    - your own history, which is clearly labeled and never triggers limit alerts.
 4. **Learn your rhythm.** A recency-weighted profile of your 168 hours of the week, plus a seasonal forecast whose smoothing is re-tuned online every day.
 5. **Judge with quantiles.** Anomalies are scored as `(x − p50) / (p90 − p50)` against the same hour of day, your recent days, or the same project's sessions.
+6. **Simulate.** Monte Carlo over day-level intensity draws (weekly windows), or a Markov chain of active and idle hours (5-hour windows), turns pace into a probability.
+7. **Know the plan.** Plan metadata comes from Claude Code's local config; organization API data comes from the Admin API through the official Anthropic SDK.
 
 ## Privacy
 
 - Nothing leaves your machine except two kinds of call. The first is the plan-meter request, which goes to Anthropic with your own token; turn it off with `--offline`. The second is the alert channels you configure.
-- No telemetry, no accounts, no runtime dependencies.
+- No telemetry, no accounts, no required runtime dependencies. The official Anthropic SDK is an optional dependency, loaded only for API commands.
+- Plan detection reads only plan metadata from Claude Code's config: never tokens, e-mail addresses or names.
 - The dashboard listens on loopback, blocks DNS-rebinding, and sends a strict CSP.
 
 ## FAQ
@@ -178,6 +234,11 @@ The meter counts everything on your account, including claude.ai and other machi
 It depends on how regular you are, and ccpulse tells you. `ccpulse forecast` prints the average daily error and how often reality fell inside the 80% range over the last 42 days, measured out-of-sample. Weekly totals are far more predictable than single days.
 </details>
 
+<details><summary><b>How is the plan value computed?</b></summary>
+
+Your Claude Code usage in the current billing cycle (which renews on your subscription's start date) is priced at API list rates and compared with the plan's price: the list price for your tier, or `plan.monthlyPrice` if you set it. It measures how much the subscription is saving you, not what you pay.
+</details>
+
 <details><summary><b>Does it work with ccusage?</b></summary>
 
 Yes. Use ccusage for multi-agent reports and ccpulse for the analytics and alerts. The two read the same files and don't interfere.
@@ -193,6 +254,7 @@ ccpulse calls it read-only with the login Claude Code already has. It never refr
 - [How it works](docs/how-it-works.md): data, dedup, pricing, cycles, the learning loop, forecasting and anomaly math
 - [Configuration](docs/configuration.md): every option, environment variables, files on disk
 - [Alerts](docs/alerts.md): rules, channels, running in the background
+- [API spend & management](docs/api.md): Admin API setup, budgets, keys, spend limits
 - [Contributing](CONTRIBUTING.md)
 
 ## Credits

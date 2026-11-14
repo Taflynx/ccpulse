@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.0 — 2026-11-14
+
+Plan awareness, API management and professional analytics.
+
+- **Plan detection:** Pro, Max 5x/20x, Team, Enterprise, API key, Bedrock/Vertex/Foundry. Tier, billing cycle, extra usage, auth in use (`ccpulse plan`).
+- **Plan value and advice:** API-equivalent value of each billing cycle vs. the price, and tier advice from real weekly peaks.
+- **Monte Carlo limit risk:** the probability of hitting each limit before reset, with p10/p50/p90 and burn-down fans. Status and alerts are now driven by probability, and pace alerts stay quiet when the risk is low.
+- **Deep analytics (`ccpulse analyze`):** cost anatomy, context economics, working sessions, effort / subagent / entry-point breakdowns, weekly model mix, concentration, regime-change detection, and automatic insights from all of these.
+- **Organization API (`ccpulse api`):** spend, forecast, budgets, anomalies and recommendations through the Admin API and the official Anthropic SDK; key enable / disable / archive / rename, workspaces, rate limits and spend limits.
+- **Dashboard:** plan bar, risk and burn-down per cycle, deep-analytics and API sections, regime marker, `?focus=` views.
+- **Alerts:** limit risk, API budgets, API spend limit, API anomalies, regime change.
+- Index v2 records thinking tokens, effort, entry point, subagent and web-search usage. The first run re-indexes once.
+
 ## 0.1.0 — 2026-11-14
 
 First release.

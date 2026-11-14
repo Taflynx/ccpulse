@@ -21,7 +21,23 @@ export interface Config {
     /** Weekly reset anchor when the official endpoint is unavailable, e.g. "thu 18:00". */
     weeklyReset?: string;
   };
+  plan: {
+    /** What you actually pay per month (overrides list prices) for plan-value analytics. */
+    monthlyPrice?: number;
+    /** Day of month your subscription renews (defaults to the subscription start day). */
+    billingDay?: number;
+  };
+  api: {
+    /** File holding an Admin API key (sk-ant-admin…). Prefer CCPULSE_ADMIN_KEY in the environment. */
+    adminKeyFile?: string;
+    /** Local monthly budgets for API spend, evaluated by `watch` with pace alerts. */
+    budgets: { name: string; monthly: number; workspaceId?: string; apiKeyId?: string; model?: string }[];
+    /** Minutes to cache Admin API responses (data refreshes every few hours upstream). */
+    cacheMinutes: number;
+  };
   alerts: {
+    /** Probability (0–1) of hitting a limit before reset that triggers a risk alert. */
+    riskProbability: number;
     /** Alert when used% / elapsed% exceeds this. */
     pace: number;
     /** Alert when the projection says you will hit the limit before it resets. */
@@ -51,7 +67,10 @@ export const defaults: Config = {
   weekStart: 'monday',
   metric: 'cost',
   limits: { useOfficial: true },
+  plan: {},
+  api: { budgets: [], cacheMinutes: 30 },
   alerts: {
+    riskProbability: 0.5,
     pace: 1.25,
     projectedExhaustion: true,
     thresholds: [50, 75, 90],

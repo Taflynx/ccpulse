@@ -15,7 +15,19 @@ ccpulse works with no configuration at all. To change anything, create a config 
     "weeklyCost": 1350              // manual 100% for the weekly window
   },
 
+  "plan": {
+    "monthlyPrice": 200,            // what you actually pay (default: your tier's list price)
+    "billingDay": 18                // override the renewal day (default: subscription start)
+  },
+
+  "api": {
+    "adminKeyFile": "~/.config/ccpulse/admin.key",   // or CCPULSE_ADMIN_KEY in the environment
+    "budgets": [{ "name": "Production", "monthly": 1800, "workspaceId": "wrkspc_…" }],
+    "cacheMinutes": 30
+  },
+
   "alerts": {
+    "riskProbability": 0.5,         // alert when P(hit limit before reset) reaches this
     "pace": 1.25,                   // alert when used ÷ elapsed reaches this
     "projectedExhaustion": true,    // alert when the limit is projected before reset
     "thresholds": [50, 75, 90],     // alert once per cycle when crossing these percentages
@@ -40,7 +52,13 @@ Command-line flags override the file: `--tz`, `--week-start`, `--metric` and `--
 | `limits.weeklyReset` | — | `"<weekday> HH:MM"` in your time zone |
 | `limits.sessionCost` | — | Manual 100% for session windows |
 | `limits.weeklyCost` | — | Manual 100% for weekly windows |
-| `alerts.pace` | `1.25` | Pace alert threshold |
+| `plan.monthlyPrice` | list price | Price used for plan-value analytics |
+| `plan.billingDay` | subscription start | Day of month your plan renews |
+| `api.adminKeyFile` | — | File with an Admin API key (prefer `CCPULSE_ADMIN_KEY`) |
+| `api.budgets` | `[]` | Monthly API budgets: `{ name, monthly, workspaceId?, apiKeyId?, model? }` |
+| `api.cacheMinutes` | `30` | Admin API response cache |
+| `alerts.riskProbability` | `0.5` | Risk alert threshold (Monte Carlo probability) |
+| `alerts.pace` | `1.25` | Pace alert threshold (only when risk ≥ 10%) |
 | `alerts.projectedExhaustion` | `true` | Alert on projected limit before reset |
 | `alerts.thresholds` | `[50,75,90]` | Utilization thresholds |
 | `alerts.anomalyZ` | `4` | Anomaly sensitivity (lower = more alerts) |
@@ -54,6 +72,7 @@ Command-line flags override the file: `--tz`, `--week-start`, `--metric` and `--
 |---|---|
 | `CLAUDE_CONFIG_DIR` | Claude Code data directories (comma-separated), same as Claude Code and ccusage |
 | `CCPULSE_CONFIG` | Use a different config file |
+| `CCPULSE_ADMIN_KEY` / `ANTHROPIC_ADMIN_KEY` | Admin API key for organization API analytics and management |
 | `CCPULSE_TELEGRAM_BOT_TOKEN`, `CCPULSE_TELEGRAM_CHAT_ID` | Telegram channel |
 | `CCPULSE_NTFY_TOPIC`, `CCPULSE_NTFY_SERVER`, `CCPULSE_NTFY_TOKEN` | ntfy channel |
 | `CCPULSE_SLACK_WEBHOOK` | Slack incoming webhook |
@@ -72,6 +91,7 @@ Command-line flags override the file: `--tz`, `--week-start`, `--metric` and `--
 | `~/.cache/ccpulse/official-usage.json` | Last plan-meter reading, reused for 60 s |
 | `~/.local/state/ccpulse/limit-history.jsonl` | Learned-limit snapshots ([how it works §4](how-it-works.md#4-the-learning-loop)) |
 | `~/.local/state/ccpulse/alerts.json` | Alert cooldown state |
+| `~/.cache/ccpulse/admin-*.json` | Admin API response cache (mode 600) |
 
 The `XDG_CONFIG_HOME`, `XDG_CACHE_HOME` and `XDG_STATE_HOME` variables are honored.
 

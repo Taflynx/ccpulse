@@ -8,6 +8,7 @@ const params = new URLSearchParams(location.search);
 let gran = 'hour';
 try { gran = localStorage.getItem('ccpulse.gran') || 'hour'; } catch (_) { /* storage blocked */ }
 if (['hour', 'day', 'week', 'month'].includes(params.get('g'))) gran = params.get('g');
+if (['deep', 'api'].includes(params.get('focus'))) document.body.dataset.focus = params.get('focus');
 
 // ---------- formatting ----------
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -84,8 +85,9 @@ const STATUS = {
   warn: { color: 'var(--serious)', label: 'Burning fast', icon: '<path d="M7 1.5 13 12H1Z" fill="currentColor"/>' },
   critical: { color: 'var(--critical)', label: 'Will hit limit', icon: '<path d="M7 1.5 13 12H1Z" fill="currentColor"/><rect x="6.2" y="5" width="1.6" height="3.6" fill="var(--surface)"/><rect x="6.2" y="9.4" width="1.6" height="1.6" fill="var(--surface)"/>' },
 };
-function statusHtml(s) {
+function statusHtml(s, label) {
   const st = STATUS[s] || STATUS.ok;
+  if (label) return `<span class="status"><svg viewBox="0 0 14 14" style="color:${st.color}" aria-hidden="true">${st.icon}</svg>${label}</span>`;
   return `<span class="status"><svg viewBox="0 0 14 14" style="color:${st.color}" aria-hidden="true">${st.icon}</svg>${st.label}</span>`;
 }
 const SOURCE = { official: 'plan meter', calibrated: 'learned limit', configured: 'your config', history: 'vs. your history' };
@@ -101,19 +103,20 @@ function renderCycles() {
     const facts = [];
     if (c.pace !== undefined && c.pace !== null) facts.push(['Pace', `${c.pace.toFixed(2)}× <span style="color:var(--muted)">(used ÷ elapsed)</span>`]);
     if (!rolling && c.end > now) facts.push(['Resets', `${fmtTime(c.end)} · in ${dur(c.end - now)}`]);
-    if (c.projected !== undefined && c.projected !== null) facts.push(['Projected at reset', pct(c.projected)]);
-    if (c.etaFull && c.etaFull < c.end) facts.push(['Limit reached', `<b>${fmtTime(c.etaFull)}</b> · ${dur(c.end - c.etaFull)} early`]);
+    if ((c.pHit === undefined || c.pHit === null) && c.projected !== undefined && c.projected !== null) facts.push(['Projected at reset', pct(c.projected)]);
+    if (c.etaFull && c.etaFull < c.end) facts.push(['Likely limit', `<b>${fmtTime(c.etaFull)}</b> · ${dur(c.end - c.etaFull)} early`]);
     facts.push(['Burn now', money(c.burnPerHour) + '/h']);
     if (c.safeBurnPerHour !== undefined && c.safeBurnPerHour !== null) facts.push(['Sustainable', '≤ ' + money(c.safeBurnPerHour) + '/h']);
     facts.push(['Used (API-equiv.)', money(c.usedCost) + (c.limitCost ? ' of ≈' + money(c.limitCost) : '')]);
     return `<article class="card">
-      <div class="row"><h2>${esc(c.label)}</h2>${statusHtml(c.status)}</div>
+      <div class="row"><h2>${esc(c.label)}</h2>${statusHtml(c.status, c.status === 'critical' && c.pHit !== undefined && c.pHit !== null && c.pHit < 0.5 ? 'Near limit' : undefined)}</div>
       <div class="row" style="margin-top:6px"><div class="big">${pct(used)}</div><span class="chip">${SOURCE[c.source]}</span></div>
       <div class="label">${rolling ? 'of your heaviest week' : `used · ${pct(c.elapsed)} of the cycle has passed`}</div>
       <div class="meter" role="img" aria-label="${pct(used)} used, ${pct(c.elapsed)} of cycle elapsed">
         <i style="width:${fill * 100}%;background:${color}"></i>${rolling ? '' : `<b style="left:calc(${c.elapsed * 100}% - 1px)" title="Even pace"></b>`}
       </div>
       <div class="meter-legend"><span>0%</span>${rolling ? '' : `<span>▏ even pace = ${pct(c.elapsed)}</span>`}<span>100%</span></div>
+      ${riskHtml(c)}${burnSvg(c)}
       <dl class="facts">${facts.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>
       ${(c.notes || []).map((n) => `<div class="note">ⓘ ${esc(n)}</div>`).join('')}
     </article>`;
@@ -218,6 +221,15 @@ function renderTrend() {
     const pts = normal.map((v, i) => `${L + band * i + band / 2},${y(v)}`).join(' ');
     el('polyline', { points: pts, fill: 'none', stroke: 'var(--ink-2)', 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round', 'pointer-events': 'none' }, svg);
   }
+  if (gran === 'day' && DATA.changePoint) {
+    const idx = series.findIndex((b) => b.start >= DATA.changePoint.at);
+    if (idx > 0) {
+      const cx = L + band * idx;
+      el('line', { x1: cx, x2: cx, y1: T, y2: H - B, stroke: 'var(--ink-2)', 'stroke-width': 1, 'stroke-dasharray': '3 3' }, svg);
+      const t = el('text', { x: cx + 6, y: T + 12, 'font-size': 11, fill: 'var(--ink-2)' }, svg);
+      t.textContent = `regime change ${DATA.changePoint.change >= 0 ? '+' : ''}${Math.round(DATA.changePoint.change * 100)}%`;
+    }
+  }
   $('trend').replaceChildren(svg);
   const legend = [`<span><i class="key" style="background:var(--s1)"></i>Actual</span>`];
   if (normal) legend.push(`<span><i class="key line" style="background:var(--ink-2)"></i>Your normal for that hour (learned)</span>`);
@@ -292,7 +304,8 @@ function render() {
   $('error').innerHTML = '';
   $('updated').textContent = 'Updated ' + new Date(DATA.generatedAt).toLocaleTimeString([], { timeZone: DATA.timezone, hour: '2-digit', minute: '2-digit' }) + ' · ' + DATA.timezone + ' · ' + DATA.entries.toLocaleString() + ' requests';
   $('subtitle').textContent = DATA.firstSeen ? 'since ' + fmtDate(DATA.firstSeen) : 'Claude Code usage';
-  renderCycles(); renderTiles(); renderTrend(); renderHeatmap(); renderInsights(); renderAnomalies(); renderNext7();
+  renderPlanBar(); renderCycles(); renderTiles(); renderTrend(); renderHeatmap(); renderInsights(); renderAnomalies(); renderNext7();
+  renderAnatomy(); renderContext(); renderMix(); renderSessions(); renderBreakdowns(); renderApi();
   $('models').innerHTML = rankTable(DATA.models.slice(0, 10), 'model');
   $('projects').innerHTML = rankTable(DATA.projects.slice(0, 12), 'project');
   if (DATA.warnings.length) $('footer').textContent += ' ' + DATA.warnings.join(' ');
@@ -321,7 +334,172 @@ $('theme').addEventListener('click', () => {
   try { localStorage.setItem('ccpulse.theme', root.dataset.theme); } catch (_) { /* ignore */ }
 });
 try { const t = params.get('theme') || localStorage.getItem('ccpulse.theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (_) { /* ignore */ }
+
+// ---------- plan bar ----------
+function renderPlanBar() {
+  const p = DATA.plan; const v = DATA.planValue; const adv = DATA.planAdvice;
+  const items = [];
+  items.push(`<div class="item"><div class="label">Plan</div><div class="v">${esc(p.label)}</div><div class="label">${p.multiplier && !p.label.includes(String(p.multiplier)) ? p.multiplier + '× Pro tier · ' : ''}${p.extraUsage ? 'extra usage on' : 'extra usage off'}</div></div>`);
+  if (v.period) items.push(`<div class="item grow"><div class="label">Billing cycle · day ${v.period.day} of ${v.period.days} · renews ${fmtDate(v.period.end)}</div><div class="meter" style="margin:8px 0 2px"><i style="width:${Math.min(100, v.period.elapsed * 100)}%;background:var(--s1)"></i></div></div>`);
+  items.push(`<div class="item"><div class="label">Value this cycle (API-equiv.)</div><div class="v">${money(v.valueSoFar)}${v.price ? ` <span class="label">= ${(v.valueSoFar / v.price).toFixed(1)}× the price</span>` : ''}</div><div class="label">projected ${money(v.valueProjected)}${v.price ? ` · price ${money(v.price)}/mo` : ''}</div></div>`);
+  const icon = adv.verdict === 'upgrade' ? STATUS.critical : adv.verdict === 'downgrade' ? STATUS.ok : adv.verdict === 'fits' ? STATUS.ok : STATUS.watch;
+  items.push(`<div class="item grow"><div class="label">Plan advice</div><div style="display:flex;gap:6px;align-items:center;font-weight:600"><svg viewBox="0 0 14 14" width="14" height="14" style="color:${icon.color};flex:none" aria-hidden="true">${icon.icon}</svg>${esc(adv.title)}</div><div class="label">${esc(adv.detail)}</div></div>`);
+  $('planbar').innerHTML = items.join('');
+}
+
+// ---------- burn-down fan inside a cycle card ----------
+function burnSvg(c) {
+  const bd = (DATA.burndowns || []).find((b) => b.key === c.key);
+  const risk = (DATA.risks || []).find((r) => r.key === c.key);
+  if (!bd) return '';
+  const W = 300; const H = 92; const L = 2; const R = 2; const T = 6; const B = 4;
+  const maxV = Math.max(1.05, ...(risk ? risk.fan.map((f) => f.p90) : []), ...bd.actual.map((a) => a.v));
+  const x = (t) => L + (W - L - R) * ((t - bd.start) / (bd.end - bd.start));
+  const y = (v) => T + (H - T - B) * (1 - Math.min(v, maxV) / maxV);
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Burn-down: cumulative usage vs. even pace and projection">`;
+  svg += `<line x1="${L}" x2="${W - R}" y1="${y(1)}" y2="${y(1)}" stroke="var(--critical)" stroke-width="1" opacity=".6"/>`;
+  svg += `<line x1="${x(bd.start)}" y1="${y(0)}" x2="${x(bd.end)}" y2="${y(1)}" stroke="var(--axis)" stroke-width="1.5"/>`;
+  if (risk && risk.fan.length) {
+    const last = bd.actual[bd.actual.length - 1];
+    const up = [{ t: last.t, v: last.v }].concat(risk.fan.map((f) => ({ t: f.t, v: f.p90 })));
+    const lo = [{ t: last.t, v: last.v }].concat(risk.fan.map((f) => ({ t: f.t, v: f.p10 })));
+    svg += `<path d="M${up.map((p) => `${x(p.t)},${y(p.v)}`).join('L')}L${lo.reverse().map((p) => `${x(p.t)},${y(p.v)}`).join('L')}Z" fill="var(--s1)" opacity=".14"/>`;
+    svg += `<polyline points="${[{ t: last.t, v: last.v }].concat(risk.fan.map((f) => ({ t: f.t, v: f.p50 }))).map((p) => `${x(p.t)},${y(p.v)}`).join(' ')}" fill="none" stroke="var(--s1)" stroke-width="2" stroke-dasharray="1 4" stroke-linecap="round"/>`;
+  }
+  svg += `<polyline points="${bd.actual.map((p) => `${x(p.t)},${y(p.v)}`).join(' ')}" fill="none" stroke="var(--s1)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+  svg += '</svg>';
+  return `<div class="mini" title="Solid: used so far · diagonal: even pace · dotted + band: simulated median and 10–90% range · red: limit">${svg}</div>`;
+}
+
+function riskHtml(c) {
+  if (c.pHit === undefined || c.pHit === null) return '';
+  const col = c.pHit >= 0.5 ? 'var(--critical)' : c.pHit >= 0.2 ? 'var(--serious)' : 'var(--good-text)';
+  return `<div class="risk"><b style="color:${col}">${pct(c.pHit)}</b><span class="label">chance of hitting the limit before reset · median at reset ${pct(c.projected)}</span></div>`;
+}
+
+// ---------- cost anatomy ----------
+function renderAnatomy() {
+  const an = DATA.advanced.anatomy;
+  const parts = [
+    ['Cache writes (1h)', an.cacheWrite1h, 'var(--c1)'],
+    ['Cache reads', an.cacheRead, 'var(--c2)'],
+    ['Output', an.output, 'var(--c3)'],
+    ['Cache writes (5m)', an.cacheWrite5m, 'var(--c4)'],
+    ['Uncached input', an.input, 'var(--c-other)'],
+  ].sort((a, b) => b[1] - a[1]);
+  const t = an.total || 1;
+  $('anat-sub').textContent = `${money(an.total)} over 30 days. Without prompt caching: ~${money(an.withoutCache)} (${(an.withoutCache / t).toFixed(1)}×). Thinking is ${money(an.thinking)} of output.`;
+  $('anatomy').innerHTML = `<div class="stack" role="img" aria-label="Cost by token type">${parts.map(([k, v, col]) => `<i style="width:${(v / t) * 100}%;background:${col}" title="${k}: ${money(v)}"></i>`).join('')}</div>
+    <table><thead><tr><th>Token type</th><th class="n">Cost</th><th class="n">Share</th></tr></thead><tbody>${parts.map(([k, v, col]) => `<tr><td><i class="key" style="background:${col};margin-right:8px;vertical-align:-1px"></i>${k}</td><td class="n">${money(v)}</td><td class="n">${pct(v / t)}</td></tr>`).join('')}</tbody></table>
+    <div style="margin-top:12px">${DATA.advanced.anatomy.byModel.slice(0, 5).map((m) => `<div class="budget" style="grid-template-columns:150px 1fr auto"><span>${esc(m.model)}</span><div class="hbar" style="width:${(m.total / (DATA.advanced.anatomy.byModel[0].total || 1)) * 100}%"></div><span class="n">${money(m.total)}</span></div>`).join('')}</div>`;
+}
+
+function renderContext() {
+  const c = DATA.advanced.context;
+  const st = (k, v, s) => `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s}</div></div>`;
+  $('context').innerHTML = [
+    st('Prompt per request', tok(c.promptP50), `p90 ${tok(c.promptP90)} · p99 ${tok(c.promptP99)}`),
+    st('Requests over 200k', pct(c.over200kShare), `${pct(c.over200kCostShare)} of cost`),
+    st('Context growth', `+${tok(c.growthPerTurn)}`, 'tokens per turn in a session'),
+    st('Cache hit rate', pct(c.cacheHitRate), `each cached token re-read ${c.cacheReuse.toFixed(0)}×`),
+    st('Re-read above 100k', money(c.heavyContextCost), '/compact or /clear could save this'),
+    st('Thinking', pct(c.thinkingShareOfOutput), 'of output tokens'),
+  ].join('');
+}
+
+// ---------- model mix (stacked columns, fixed categorical order) ----------
+function renderMix() {
+  const mix = DATA.advanced.mix;
+  if (!mix.points.length) return void ($('mix').innerHTML = '<div class="empty">Not enough history yet.</div>');
+  const cols = ['var(--c1)', 'var(--c2)', 'var(--c3)', 'var(--c4)', 'var(--c-other)'];
+  const colorOf = (m, i) => (m === 'other' ? 'var(--c-other)' : cols[i]);
+  $('mix-legend').innerHTML = mix.models.map((m, i) => `<span><i class="key" style="background:${colorOf(m, i)}"></i>${esc(m.replace('claude-', ''))}</span>`).join('');
+  const W = Math.max(300, Math.round($('mix').clientWidth || 1000)); const H = 200; const L = 40; const B = 26; const T = 6;
+  const n = mix.points.length; const band = (W - L - 4) / n; const bw = Math.min(40, band - 6);
+  const y = (v) => T + (H - T - B) * (1 - v);
+  const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Weekly model mix' });
+  for (const v of [0, 0.5, 1]) {
+    el('line', { x1: L, x2: W - 4, y1: y(v), y2: y(v), stroke: v === 0 ? 'var(--axis)' : 'var(--grid)', 'stroke-width': 1 }, svg);
+    const t = el('text', { x: L - 6, y: y(v) + 4, 'text-anchor': 'end', 'font-size': 11, fill: 'var(--muted)' }, svg); t.textContent = pct(v);
+  }
+  mix.points.forEach((p, i) => {
+    const x = L + band * i + (band - bw) / 2;
+    let acc = 0;
+    const g = el('g', {}, svg);
+    mix.models.forEach((m, k) => {
+      const v = p.shares[m] || 0; if (v <= 0) return;
+      const y0 = y(acc); const y1 = y(acc + v);
+      el('rect', { x, y: y1 + 1, width: bw, height: Math.max(0, y0 - y1 - 2), fill: colorOf(m, k), rx: 2 }, g);
+      acc += v;
+    });
+    const hit = el('rect', { x: L + band * i, y: T, width: band, height: H - T - B, fill: 'transparent' }, g);
+    hit.addEventListener('mousemove', (ev) => showTip(`<b>${esc(p.label)}</b><br>${mix.models.filter((m) => p.shares[m]).map((m) => `${esc(m.replace('claude-', ''))}: ${pct(p.shares[m])}`).join('<br>')}<br><span style="color:var(--ink-2)">total ${val(p.total)}</span>`, ev));
+    hit.addEventListener('mouseleave', hideTip);
+    if (i % Math.ceil(n / 8) === 0) { const t = el('text', { x: x + bw / 2, y: H - 8, 'text-anchor': 'middle', 'font-size': 11, fill: 'var(--muted)' }, svg); t.textContent = fmtDate(p.start); }
+  });
+  $('mix').replaceChildren(svg);
+}
+
+function renderSessions() {
+  const s = DATA.advanced.sessions;
+  $('ses-sub').textContent = `${s.count.toLocaleString()} working sessions (split at 2 h idle) · median ${dur(s.durationP50)}, ${money(s.costP50)} · p90 ${money(s.costP90)} · ${s.oneShot.toLocaleString()} one-shot automations carry ${pct(s.oneShotCostShare)} of cost.`;
+  $('sessions').innerHTML = `<table><thead><tr><th>Project</th><th>Model</th><th>Started</th><th class="n">Length</th><th class="n">Req.</th><th class="n">Cost</th></tr></thead><tbody>${s.top.slice(0, 6).map((t) => `<tr><td>${esc(t.project)}</td><td>${esc(t.model.replace('claude-', ''))}</td><td>${fmtTime(t.start)}</td><td class="n">${dur(t.end - t.start)}</td><td class="n">${t.requests.toLocaleString()}</td><td class="n">${money(t.cost)}</td></tr>`).join('')}</tbody></table>`;
+}
+
+function renderBreakdowns() {
+  const block = (title, rows) => rows.length ? `<div style="margin-bottom:12px"><div class="label" style="margin-bottom:4px">${title}</div>${rows.slice(0, 4).map((b) => `<div class="budget" style="grid-template-columns:110px 1fr 120px"><span>${esc(b.key)}</span><div class="hbar" style="width:${Math.max(1, b.share * 100)}%"></div><span class="n" style="text-align:right">${pct(b.share)} · ${money(b.costPerRequest)}/req</span></div>`).join('')}</div>` : '';
+  const a = DATA.advanced;
+  $('breakdowns').innerHTML = block('Effort level', a.byEffort) + block('Main thread vs. subagents', a.bySubagent) + block('Entry point', a.byEntrypoint) +
+    `<div class="label">Concentration: top project ${pct(a.concentration.topShare)}, top 3 ${pct(a.concentration.top3Share)} (≈ ${a.concentration.effectiveProjects.toFixed(1)} equal-sized projects)</div>`;
+}
+
+// ---------- API ----------
+function renderApi() {
+  const r = DATA.api;
+  $('api-section').classList.toggle('hidden', !r);
+  if (!r) return;
+  const m = r.month;
+  $('api-heading').textContent = `API spend · ${r.organization.name}`;
+  const tile = (k, v, s) => `<article class="card"><div class="label">${k}</div><div class="big">${v}</div><div class="label">${s}</div></article>`;
+  const vs = m.lastMonthToDate ? `${m.spend >= m.lastMonthToDate ? '▲' : '▼'} ${Math.round(Math.abs(m.spend / m.lastMonthToDate - 1) * 100)}% vs. same point last month` : '';
+  $('api-tiles').innerHTML = [
+    tile('This month so far', money(m.spend), `${pct(m.elapsed)} of the month · ${vs}`),
+    tile('Month-end forecast', money(m.projected), `80% range ${money(m.lo)}–${money(m.hi)}`),
+    tile('Last month', money(m.lastMonth), m.listSpend > m.spend ? `discounts saved ${money(m.listSpend - m.spend)} this month` : ''),
+    tile('Forecast accuracy', `${Math.round(r.forecast.wape * 100)}%`, `avg. daily error · ${Math.round(r.forecast.coverage * 100)}% of days in range`),
+  ].join('');
+  // daily chart with forecast
+  const series = r.daily.slice(-45); const fc = r.next7;
+  const W = Math.max(300, Math.round($('api-chart').clientWidth || 600)); const H = 210; const L = 48; const T = 8; const B = 26;
+  const n = series.length + fc.length; const band = (W - L - 4) / n; const bw = Math.min(16, Math.max(2, band - 2));
+  const sc = niceScale(Math.max(...series.map((d) => d.usd), ...fc.map((p) => p.hi), 1)); const max = sc.top;
+  const y = (v) => T + (H - T - B) * (1 - Math.min(v, max) / max);
+  const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Daily API spend with forecast' });
+  for (let i = 0; i * sc.step <= max + 1e-9; i++) { const v = i * sc.step; el('line', { x1: L, x2: W - 4, y1: y(v), y2: y(v), stroke: i ? 'var(--grid)' : 'var(--axis)', 'stroke-width': 1 }, svg); const t = el('text', { x: L - 6, y: y(v) + 4, 'text-anchor': 'end', 'font-size': 11, fill: 'var(--muted)' }, svg); t.textContent = '$' + (v >= 1000 ? (v / 1000) + 'K' : v); }
+  const items = series.map((d) => ({ t: d.t, v: d.usd, f: false })).concat(fc.map((p) => ({ t: p.t, v: p.usd, lo: p.lo, hi: p.hi, f: true })));
+  items.forEach((it, i) => {
+    const cx = L + band * i + band / 2; const g = el('g', {}, svg);
+    el('path', { d: colPath(cx - bw / 2, y(it.v), bw, y(0) - y(it.v)), fill: it.f ? 'var(--s1-soft)' : 'var(--s1)' }, g);
+    if (it.f) el('line', { x1: cx, x2: cx, y1: y(it.lo), y2: y(it.hi), stroke: 'var(--ink-2)', 'stroke-width': 1 }, g);
+    const hit = el('rect', { x: L + band * i, y: T, width: band, height: H - T - B, fill: 'transparent' }, g);
+    hit.addEventListener('mousemove', (ev) => showTip(`<b>${new Date(it.t).toISOString().slice(0, 10)}</b> (UTC)<br>${money(it.v)}${it.f ? ` forecast<br><span style="color:var(--ink-2)">80% ${money(it.lo)}–${money(it.hi)}</span>` : ''}`, ev));
+    hit.addEventListener('mouseleave', hideTip);
+    if (i % Math.ceil(n / 7) === 0) { const t = el('text', { x: cx, y: H - 8, 'text-anchor': 'middle', 'font-size': 11, fill: 'var(--muted)' }, svg); t.textContent = new Date(it.t).toLocaleDateString([], { timeZone: 'UTC', month: 'short', day: 'numeric' }); }
+  });
+  $('api-chart').replaceChildren(svg);
+  $('api-chart-sub').textContent = `Last 45 days (UTC) and the next 7. Model α=${r.forecast.alpha}. ${r.notes[0] || ''}`;
+  $('api-budgets').innerHTML = r.budgets.length ? r.budgets.map((b) => {
+    const col = b.status === 'critical' ? 'var(--critical)' : b.status === 'warn' ? 'var(--serious)' : b.status === 'watch' ? 'var(--warning)' : 'var(--s1)';
+    const st = { critical: 'critical', warn: 'warn', watch: 'watch', ok: 'ok' }[b.status];
+    return `<div class="budget"><span><b>${esc(b.name)}</b><br><span class="label">${money(b.spend)} / ${money(b.monthly)}</span></span><div><div class="meter" style="margin:4px 0"><i style="width:${Math.min(100, b.used * 100)}%;background:${col}"></i><b style="left:calc(${b.elapsed * 100}% - 1px)"></b></div><span class="label">pace ${b.pace.toFixed(2)}× · projected ${money(b.projected)}</span></div>${statusHtml(st, { critical: 'Projected over', warn: 'Burning fast', watch: 'Watch', ok: 'On track' }[st])}</div>`;
+  }).join('') : '<div class="empty">No budgets. Add <code>api.budgets</code> to your config.</div>';
+  $('api-hygiene').innerHTML = r.hygiene.length ? r.hygiene.slice(0, 6).map((h) => `<div class="insight"><span aria-hidden="true" style="color:${h.level === 'warn' ? 'var(--serious)' : 'var(--ink-2)'}">${h.level === 'warn' ? '⚠' : '•'}</span><span class="t">${esc(h.title)}</span><span class="d">${esc(h.detail)}</span></div>`).join('') : '<div class="empty">Nothing to fix.</div>';
+  const grp = (rows, extra) => `<table><thead><tr><th>Name</th><th class="n">This month</th><th class="n">Share</th><th class="n">7d vs prior</th>${extra ? '<th>Last used</th>' : ''}</tr></thead><tbody>${rows.slice(0, 8).map((g) => `<tr><td>${esc(g.name)}${g.status && g.status !== 'active' ? ` <span class="chip">${esc(g.status)}</span>` : ''}</td><td class="n">${money(g.monthToDate)}</td><td class="n">${pct(g.share)}</td><td class="n">${g.prev7 ? ((g.last7 / g.prev7 - 1) >= 0 ? '+' : '') + Math.round((g.last7 / g.prev7 - 1) * 100) + '%' : '–'}</td>${extra ? `<td>${g.lastUsed ? fmtDate(g.lastUsed) : '–'}</td>` : ''}</tr>`).join('')}</tbody></table>`;
+  $('api-ws').innerHTML = grp(r.byWorkspace, false);
+  $('api-keys').innerHTML = grp(r.byKey, true);
+}
+
 let rz;
-addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => DATA && renderTrend(), 150); });
+addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { if (DATA) { renderTrend(); renderMix(); renderApi(); } }, 150); });
 load();
 setInterval(load, 60000);

@@ -90,6 +90,10 @@ terminal('cli-insights', ['insights'], 'ccpulse insights');
 terminal('cli-anomalies', ['anomalies'], 'ccpulse anomalies');
 terminal('cli-report', ['report', 'daily', '-n', '10', '--by', 'model'], 'ccpulse report daily');
 terminal('cli-statusline', ['statusline'], 'Claude Code status line');
+terminal('cli-plan', ['plan'], 'ccpulse plan');
+terminal('cli-analyze', ['analyze'], 'ccpulse analyze');
+terminal('cli-api', ['api'], 'ccpulse api');
+terminal('cli-api-keys', ['api', 'keys'], 'ccpulse api keys');
 
 // ---------- dashboard ----------
 const port = 4499;
@@ -101,6 +105,8 @@ try {
     shoot(url, path.join(tmp, `dash-${theme}.png`), 1360, 1500);
   }
   shoot(`http://127.0.0.1:${port}/?theme=dark&g=hour`, path.join(tmp, 'dash-hour.png'), 1360, 1500);
+  shoot(`http://127.0.0.1:${port}/?theme=light&focus=deep`, path.join(tmp, 'dash-deep.png'), 1360, 1500);
+  shoot(`http://127.0.0.1:${port}/?theme=dark&focus=api`, path.join(tmp, 'dash-api.png'), 1360, 1500);
 } finally {
   server.kill();
 }
@@ -125,6 +131,8 @@ function framed(name, img, title, bg) {
 framed('dashboard-light', path.join(tmp, 'dash-light.png'), 'light', 'linear-gradient(135deg,#dbe9fb 0%,#f5f3ef 60%,#fde5d9 100%)');
 framed('dashboard-dark', path.join(tmp, 'dash-dark.png'), 'dark', 'linear-gradient(135deg,#1d3a70 0%,#0d1730 55%,#3a1f2e 100%)');
 framed('dashboard-hourly', path.join(tmp, 'dash-hour.png'), 'dark', 'linear-gradient(135deg,#1d3a70 0%,#0d1730 55%,#3a1f2e 100%)');
+framed('dashboard-deep', path.join(tmp, 'dash-deep.png'), 'light', 'linear-gradient(135deg,#dbe9fb 0%,#f5f3ef 60%,#fde5d9 100%)');
+framed('dashboard-api', path.join(tmp, 'dash-api.png'), 'dark', 'linear-gradient(135deg,#1d3a70 0%,#0d1730 55%,#3a1f2e 100%)');
 
 // ---------- brand ----------
 function brand(name, w, h, theme, body) {

@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { dispatch, evaluate, send } from './alerts.js';
 import { analyze } from './analysis.js';
 import { renderAnomalies, renderForecast, renderInsights, renderOverview, renderPace, renderReport, renderStatusline } from './commands.js';
+import { renderAnalyze, renderApiReport, renderKeys, renderPlan, renderRateLimits, renderSpendLimits, renderWorkspaces } from './commands-pro.js';
 import { configPath, loadConfig, writeDefaultConfig, type Config } from './config.js';
 import { loadEntries } from './loader.js';
 import { c } from './render/term.js';
@@ -37,7 +38,7 @@ function parseArgs(argv: string[]): Args {
   return out;
 }
 
-const VALUE_FLAGS = new Set(['tz', 'metric', 'last', 'by', 'interval', 'port', 'host', 'days', 'week-start']);
+const VALUE_FLAGS = new Set(['tz', 'metric', 'last', 'by', 'interval', 'port', 'host', 'days', 'week-start', 'period']);
 const SHORT: Record<string, string> = { j: 'json', h: 'help', v: 'version', n: 'last', p: 'port' };
 
 function version(): string {
@@ -57,6 +58,11 @@ ${c.bold('USAGE')}
 ${c.bold('COMMANDS')}
   (none)              Overview: cycle pace, forecast, last 48h vs. normal, insights, anomalies
   pace                Where you are in the 5-hour and weekly cycles, and how fast you burn
+  plan                Your plan, billing cycle, value vs. price, and plan advice
+  analyze             Deep analysis: limit risk (Monte Carlo), cost anatomy, context, sessions, mix
+  api [sub]           Organization API spend & management (needs an Admin API key):
+                        report · keys [disable|enable|archive|rename] · workspaces
+                        limits · spend-limits [set <org|workspace-id> <usd|none>]
   report <g>          Tables by hour | day | week | month   (aliases: hourly, daily, weekly, monthly)
   forecast            Today / week / month / next month, with ranges and backtested accuracy
   anomalies           Unusual hours, days and sessions vs. your own history
@@ -81,6 +87,8 @@ ${c.bold('OPTIONS')}
   --interval <dur>    watch: 30s, 5m, 1h (default 5m)
   --once              watch: run one check and exit (for cron / launchd / systemd timers)
   --dry-run           watch: print alerts without sending or recording them
+  --yes               api: skip the confirmation prompt for changes
+  --period <p>        api spend-limits set: daily | weekly | monthly (default monthly)
   -p, --port <n>      dashboard port (default 4477)
   --host <addr>       dashboard bind address (default 127.0.0.1)
   --open              dashboard: open the browser
@@ -155,6 +163,17 @@ async function main(): Promise<void> {
       }
       return void console.log(renderReport(entries, cfg, g, n, by));
     }
+    case 'plan': {
+      const a = await analyze(cfg, { offline, demo, fresh: !!f.fresh, progress, api: false });
+      return void (json ? print({ plan: a.plan, value: a.planValue, advice: a.planAdvice }) : console.log(renderPlan(a, cfg)));
+    }
+    case 'analyze':
+    case 'deep': {
+      const a = await analyze(cfg, { offline, demo, fresh: !!f.fresh, progress, api: false });
+      return void (json ? print({ risks: a.risks, advanced: a.advanced, changePoint: a.changePoint, burndowns: a.burndowns }) : console.log(renderAnalyze(a, cfg)));
+    }
+    case 'api':
+      return apiCommand(args, cfg, { demo, json, print });
     case 'forecast': {
       const a = await analyze(cfg, { offline, demo, fresh: !!f.fresh, progress });
       return void (json ? print(a.forecast) : console.log(renderForecast(a)));
@@ -183,7 +202,7 @@ async function main(): Promise<void> {
       } catch {
         /* no cache yet */
       }
-      const a = await analyze(cfg, { offline, demo, anomalyDays: 1 });
+      const a = await analyze(cfg, { offline, demo, anomalyDays: 1, light: true });
       const out = renderStatusline(a) + '\n';
       mkdirSync(path.dirname(file), { recursive: true });
       writeFileSync(file, out);
@@ -242,6 +261,93 @@ async function main(): Promise<void> {
       process.stderr.write(`Unknown command "${cmd}".\n\n`);
       process.stdout.write(HELP);
       process.exitCode = 2;
+  }
+}
+
+async function confirm(question: string, yes: boolean): Promise<boolean> {
+  if (yes) return true;
+  if (!process.stdin.isTTY) throw new Error('refusing to change anything without a terminal; re-run with --yes');
+  const rl = (await import('node:readline/promises')).createInterface({ input: process.stdin, output: process.stdout });
+  const answer = (await rl.question(`${question} [y/N] `)).trim().toLowerCase();
+  rl.close();
+  return answer === 'y' || answer === 'yes';
+}
+
+async function apiCommand(args: Args, cfg: Config, o: { demo: boolean; json: boolean; print: (v: unknown) => void }): Promise<void> {
+  const { getAdmin } = await import('./admin.js');
+  const { apiReport } = await import('./analytics/api.js');
+  const { Clock } = await import('./time.js');
+  const tz = new Clock(cfg.timezone).tz;
+  const admin = await getAdmin(cfg, { demo: o.demo });
+  const sub = args._[1] ?? 'report';
+  const yes = !!args.flags.yes;
+  const report = () => apiReport(admin, o.demo ? { ...cfg, api: { ...cfg.api, budgets: cfg.api.budgets.length ? cfg.api.budgets : [{ name: 'Production', monthly: 1800, workspaceId: 'wrkspc_demo_prod' }] } } : cfg);
+  switch (sub) {
+    case 'report':
+    case 'usage':
+    case 'spend': {
+      const r = await report();
+      return void (o.json ? o.print(r) : console.log(renderApiReport(r, tz)));
+    }
+    case 'keys': {
+      const action = args._[2] ?? 'list';
+      if (action === 'list') {
+        const [keys, r] = await Promise.all([admin.apiKeys(), report().catch(() => undefined)]);
+        return void (o.json ? o.print(keys) : console.log(renderKeys(keys, r, tz)));
+      }
+      const id = args._[3];
+      if (!id) throw new Error(`usage: ccpulse api keys ${action} <apikey_id>${action === 'rename' ? ' "<new name>"' : ''}`);
+      const key = (await admin.apiKeys()).find((k) => k.id === id);
+      if (!key) throw new Error(`no API key ${id} (see: ccpulse api keys)`);
+      let change: { status?: 'active' | 'inactive' | 'archived'; name?: string };
+      if (action === 'disable') change = { status: 'inactive' };
+      else if (action === 'enable') change = { status: 'active' };
+      else if (action === 'archive') change = { status: 'archived' };
+      else if (action === 'rename') {
+        if (!args._[4]) throw new Error('usage: ccpulse api keys rename <apikey_id> "<new name>"');
+        change = { name: args._[4] };
+      } else throw new Error(`unknown keys action "${action}" (disable | enable | archive | rename)`);
+      const what = change.name ? `Rename "${key.name}" to "${change.name}"` : `${action[0].toUpperCase()}${action.slice(1)} key "${key.name}" (${key.id})`;
+      const warn = action === 'archive' ? ' Archiving is permanent.' : action === 'disable' ? ' Requests using it will fail until re-enabled.' : '';
+      if (!(await confirm(`${what}?${warn}`, yes))) return void console.log('Cancelled.');
+      const updated = await admin.updateApiKey(id, change);
+      return void (o.json ? o.print(updated) : console.log(c.green(`✓ ${updated.name}: ${updated.status}`)));
+    }
+    case 'workspaces': {
+      const [ws, r] = await Promise.all([admin.workspaces(), report().catch(() => undefined)]);
+      return void (o.json ? o.print(ws) : console.log(renderWorkspaces(ws, r, tz)));
+    }
+    case 'limits':
+    case 'rate-limits': {
+      const rl = await admin.rateLimits();
+      return void (o.json ? o.print(rl) : console.log(renderRateLimits(rl)));
+    }
+    case 'spend-limits': {
+      if (args._[2] === 'set') {
+        const target = args._[3];
+        const amountArg = args._[4];
+        if (!target || !amountArg) throw new Error('usage: ccpulse api spend-limits set <org|wrkspc_id> <usd|none> [--period monthly]');
+        const period = (['daily', 'weekly', 'monthly'].includes(String(args.flags.period)) ? args.flags.period : 'monthly') as 'daily' | 'weekly' | 'monthly';
+        const amount = amountArg === 'none' ? null : Number(amountArg);
+        if (amount !== null && !(amount > 0)) throw new Error('amount must be a positive number of USD, or "none" to remove the limit');
+        const scope = target === 'org' || target === 'organization' ? ({ type: 'organization' } as const) : ({ type: 'workspace', workspace_id: target } as const);
+        if (!(await confirm(`Set the ${period} spend limit for ${target} to ${amount === null ? 'none' : '$' + amount}?`, yes))) return void console.log('Cancelled.');
+        try {
+          const s = await admin.setSpendLimit(scope, amount, period);
+          return void (o.json ? o.print(s) : console.log(c.green(`✓ ${s.scope}: ${s.amount !== undefined ? '$' + s.amount : 'none'}/${s.period}`)));
+        } catch (e) {
+          throw new Error(`${(e as Error).message}. Spend limits through the Admin API are an early-access feature; you can always set them in Claude Console → Settings → Limits.`);
+        }
+      }
+      try {
+        const sl = await admin.spendLimits();
+        return void (o.json ? o.print(sl) : console.log(renderSpendLimits(sl)));
+      } catch (e) {
+        throw new Error(`${(e as Error).message}. Spend limits through the Admin API are an early-access feature.`);
+      }
+    }
+    default:
+      throw new Error(`unknown api command "${sub}" (report | keys | workspaces | limits | spend-limits)`);
   }
 }
 

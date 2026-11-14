@@ -1,4 +1,29 @@
-import { bucketize, groupBy, totalsOf } from './aggregate.js';
+import { bucketize, groupBy, slice, totalsOf } from './aggregate.js';
+import { getAdmin, AdminUnavailable } from './admin.js';
+import {
+  breakdown,
+  burndown,
+  concentration,
+  contextEconomics,
+  costAnatomy,
+  detectChangePoint,
+  modelMixTrend,
+  sessionStats,
+  simulateRisk,
+  advancedInsights,
+  type Breakdown,
+  type Burndown,
+  type ChangePoint,
+  type Concentration,
+  type ContextEconomics,
+  type CostAnatomy,
+  type MixPoint,
+  type Risk,
+  type SessionStats,
+} from './analytics/advanced.js';
+import { apiReport, type ApiReport } from './analytics/api.js';
+import { planAdvice, planValue, type PlanAdvice, type PlanValue } from './analytics/planvalue.js';
+import { detectPlan, type PlanInfo } from './plan.js';
 import { detectAnomalies, type Anomaly } from './analytics/anomalies.js';
 import { buildProfile } from './analytics/baseline.js';
 import { computeCycles, type CycleStatus } from './analytics/cycle.js';
@@ -33,6 +58,27 @@ export interface Analysis {
   insights: Insight[];
   models: { model: string; totals: Totals }[];
   projects: { project: string; totals: Totals }[];
+  plan: PlanInfo;
+  planValue: PlanValue;
+  planAdvice: PlanAdvice;
+  /** Monte Carlo probability of hitting each cycle's limit before reset. */
+  risks: Risk[];
+  burndowns: Burndown[];
+  changePoint?: ChangePoint;
+  advanced: {
+    window: { from: number; to: number; days: number };
+    anatomy: CostAnatomy;
+    context: ContextEconomics;
+    sessions: SessionStats;
+    byEffort: Breakdown[];
+    byEntrypoint: Breakdown[];
+    bySubagent: Breakdown[];
+    mix: { models: string[]; points: MixPoint[] };
+    concentration: Concentration;
+  };
+  /** Organization API analytics (Admin API), when configured. */
+  api?: ApiReport;
+  apiError?: string;
   warnings: string[];
 }
 
@@ -46,6 +92,10 @@ export interface AnalyzeOptions {
   anomalyDays?: number;
   /** Synthetic data (`--demo`): never touches real logs, the network or learned history. */
   demo?: boolean;
+  /** Include organization API analytics (default: when an Admin API key is configured). */
+  api?: boolean;
+  /** Skip the heavier analytics (status line, watch). */
+  light?: boolean;
 }
 
 export async function analyze(cfg: Config, opts: AnalyzeOptions = {}): Promise<Analysis> {
@@ -88,6 +138,72 @@ export async function analyze(cfg: Config, opts: AnalyzeOptions = {}): Promise<A
 
   const hourFrom = clock.bucketStart(now - 47 * HOUR, 'hour');
   const hourSeries = bucketize(entries, clock, 'hour', hourFrom, now + 1);
+  // Plan, value and advice.
+  const plan = demo ? demoPlan(now) : detectPlan(cfg);
+  if (plan.priceSource === 'list' && plan.monthlyPrice)
+    plan.notes.push(`Using the list price $${plan.monthlyPrice}/month for value analytics; set plan.monthlyPrice if you pay a different amount.`);
+  const pv = planValue(entries, plan, cfg, clock, now, fc);
+  const advice = planAdvice(plan, history, pv, now);
+
+  // Monte Carlo limit risk and burn-downs for every cycle with a real limit.
+  const risks: Risk[] = [];
+  const burndowns: Burndown[] = [];
+  for (const c of cycles) {
+    if (c.source === 'history') continue;
+    const r = simulateRisk(c, entries, costProfile, clock, now, opts.light ? 600 : 2000);
+    if (r) {
+      risks.push(r);
+      applyRisk(c, r, cfg);
+    }
+    const b = burndown(c, entries, now);
+    if (b) burndowns.push(b);
+  }
+
+  // Cycle warnings come from the simulation, not the point projection.
+  for (let i = ins.length - 1; i >= 0; i--) if (ins[i].id.startsWith('cycle-')) ins.splice(i, 1);
+  for (const c of cycles) {
+    if (c.pHit === undefined || c.pHit < 0.5 || (c.used ?? 0) >= 1) continue;
+    ins.unshift({
+      id: `cycle-${c.key}`,
+      kind: 'warning',
+      title: `${c.label}: ${Math.round(c.pHit * 100)}% chance of hitting the limit before reset`,
+      detail:
+        (c.etaFull ? `Most likely around ${clock.short(c.etaFull)}, ${Math.round(((c.end - c.etaFull) / 3_600_000) * 10) / 10} h before it resets. ` : '') +
+        (c.safeBurnPerHour !== undefined ? `To land at 100% exactly, keep under $${c.safeBurnPerHour.toFixed(2)}/h.` : ''),
+    });
+  }
+
+  // Deep analytics over the last 30 days.
+  const winFrom = now - 30 * DAY;
+  const win = opts.light ? [] : slice(entries, winFrom, now + 1);
+  const advanced: Analysis['advanced'] = {
+    window: { from: winFrom, to: now, days: 30 },
+    anatomy: costAnatomy(win),
+    context: contextEconomics(win),
+    sessions: sessionStats(win),
+    byEffort: breakdown(win, (e) => e.effort ?? 'default', 'cost'),
+    byEntrypoint: breakdown(win, (e) => e.entrypoint ?? 'unknown', 'cost'),
+    bySubagent: breakdown(win, (e) => (e.subagent ? 'subagents' : 'main thread'), 'cost'),
+    mix: opts.light ? { models: [], points: [] } : modelMixTrend(entries, clock, metric, now),
+    concentration: concentration(win, metric),
+  };
+  const changePoint = opts.light ? undefined : detectChangePoint(entries, clock, metric, now);
+  if (!opts.light) ins.push(...advancedInsights(advanced));
+
+  // Organization API analytics.
+  let api: ApiReport | undefined;
+  let apiError: string | undefined;
+  const wantApi = opts.api ?? (demo ? true : plan.adminConfigured);
+  if (wantApi && !opts.light && (demo || !opts.offline)) {
+    try {
+      const admin = await getAdmin(cfg, { demo: !!demo });
+      const apiCfg = demo ? { ...cfg, api: { ...cfg.api, budgets: DEMO_BUDGETS } } : cfg;
+      api = await apiReport(admin, apiCfg, now);
+    } catch (e) {
+      apiError = e instanceof AdminUnavailable ? e.message : `Admin API: ${(e as Error).message}`;
+    }
+  }
+
   const unknown = unknownPricedModels();
   if (unknown.length) warnings.push(`No price for: ${unknown.join(', ')} (counted as $0). Add them to ~/.config/ccpulse/pricing.json.`);
 
@@ -131,6 +247,50 @@ export async function analyze(cfg: Config, opts: AnalyzeOptions = {}): Promise<A
     projects: [...groupBy(entries, (e) => e.project, now - 30 * DAY, now + 1)]
       .map(([project, totals]) => ({ project, totals }))
       .sort((a, b) => b.totals.cost - a.totals.cost),
+    plan,
+    planValue: pv,
+    planAdvice: advice,
+    risks,
+    burndowns,
+    changePoint,
+    advanced,
+    api,
+    apiError,
     warnings,
+  };
+}
+
+/** Replace the point projection with the simulation's median and derive status from probability. */
+function applyRisk(c: CycleStatus, r: Risk, cfg: Config): void {
+  c.projected = r.p50;
+  c.pHit = r.pHit;
+  c.etaFull = r.pHit >= 0.5 ? r.etaP50 : undefined;
+  const used = c.used ?? 0;
+  if (c.status === 'idle') return;
+  if (used >= 0.9 || r.pHit >= 0.5) c.status = 'critical';
+  else if (r.pHit >= 0.2 || used >= 0.75) c.status = 'warn';
+  else if (r.pHit >= 0.05 || (c.pace ?? 0) >= cfg.alerts.pace) c.status = 'watch';
+  else c.status = 'ok';
+}
+
+const DEMO_BUDGETS = [
+  { name: 'Production', monthly: 1800, workspaceId: 'wrkspc_demo_prod' },
+  { name: 'Research', monthly: 320, workspaceId: 'wrkspc_demo_lab' },
+];
+
+function demoPlan(now: number): PlanInfo {
+  return {
+    kind: 'max',
+    label: 'Max 5x',
+    multiplier: 5,
+    rateLimitTier: 'default_claude_max_5x',
+    billingType: 'stripe_subscription',
+    extraUsage: false,
+    subscriptionStartedAt: now - 209 * DAY,
+    monthlyPrice: 100,
+    priceSource: 'list',
+    auth: { oauth: true, apiKeyEnv: false, apiKeyHelper: false, bedrock: false, vertex: false, foundry: false, customBaseUrl: false },
+    adminConfigured: true,
+    notes: [],
   };
 }
