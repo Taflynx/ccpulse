@@ -320,12 +320,14 @@ export function statusSnapshot(a: Analysis): StatusSnapshot {
 
 export function renderStatusline(a: Analysis): string {
   const snap = statusSnapshot(a);
-  const parts: string[] = [];
+  const parts: string[] = [c.dim(snap.plan)];
   for (const cy of snap.cycles) {
     const col = cy.status === 'critical' ? c.red : cy.status === 'warn' ? c.yellow : cy.status === 'watch' ? c.yellow : c.green;
     const pace = cy.pace !== undefined && cy.elapsed >= 0.05 ? ` ${cy.pace.toFixed(1)}×` : '';
     const risk = cy.risk !== undefined && cy.risk >= 0.05 ? col(` ⚠${Math.round(cy.risk * 100)}%`) : '';
-    parts.push(`${c.dim(cy.name)} ${col(miniBar(cy.used, cy.elapsed))} ${col(pct(cy.used))}${c.dim(pace)}${risk} ${c.dim('↻' + shortDur(cy.resetsIn))}`);
+    // Text only: the band above the prompt draws the bars; this line stays a quiet summary.
+    void miniBar;
+    parts.push(`${c.dim(cy.name)} ${col(pct(cy.used))}${c.dim(pace)}${risk} ${c.dim('↻' + shortDur(cy.resetsIn))}`);
   }
   if (!snap.cycles.length)
     for (const cy of a.cycles) if (cy.usedCost > 0) parts.push(c.dim(`${shortName(cy.key)} `) + money(cy.usedCost));
