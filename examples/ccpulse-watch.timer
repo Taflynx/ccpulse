@@ -1,0 +1,12 @@
+# ~/.config/systemd/user/ccpulse-watch.timer
+# Enable: systemctl --user daemon-reload && systemctl --user enable --now ccpulse-watch.timer
+[Unit]
+Description=Run ccpulse every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

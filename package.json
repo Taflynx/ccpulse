@@ -1,0 +1,49 @@
+{
+  "name": "ccpulse",
+  "version": "0.1.0",
+  "description": "Understand, learn from and forecast your Claude Code usage: hourly/daily/weekly/monthly trends, cycle pace vs. limits, anomaly alerts and a local dashboard.",
+  "keywords": [
+    "claude",
+    "claude-code",
+    "usage",
+    "tokens",
+    "cost",
+    "forecast",
+    "anomaly-detection",
+    "dashboard",
+    "ccusage",
+    "rate-limit"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "ccpulse": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.test.*",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json && node scripts/copy-assets.mjs",
+    "test": "npm run build && node --test dist/core.test.js",
+    "dev": "npm run build && node dist/cli.js",
+    "prepack": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Taflynx/ccpulse.git"
+  },
+  "homepage": "https://github.com/Taflynx/ccpulse#readme",
+  "bugs": {
+    "url": "https://github.com/Taflynx/ccpulse/issues"
+  }
+}

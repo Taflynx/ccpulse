@@ -1,0 +1,7 @@
+# ~/.config/systemd/user/ccpulse-watch.service
+[Unit]
+Description=ccpulse usage check and alerts
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/env ccpulse watch --once

@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ccpulse</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M2 17h7l3-9 5 17 4-12 2 4h7' fill='none' stroke='%232a78d6' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface: #fcfcfb; --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
+  --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10);
+  --s1: #2a78d6; --s1-soft: #86b6ef; --s1-wash: rgba(42,120,214,0.10);
+  --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b; --good-text: #006300;
+  --seq-0: #f0efec; --seq-1: #cde2fb; --seq-2: #9ec5f4; --seq-3: #6da7ec; --seq-4: #3987e5; --seq-5: #256abf; --seq-6: #184f95; --seq-7: #0d366b;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+    --s1: #3987e5; --s1-soft: #1c5cab; --s1-wash: rgba(57,135,229,0.14); --good-text: #0ca30c;
+    --seq-0: #262624; --seq-1: #0d366b; --seq-2: #104281; --seq-3: #184f95; --seq-4: #1c5cab; --seq-5: #2a78d6; --seq-6: #5598e7; --seq-7: #9ec5f4;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
+  --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+  --s1: #3987e5; --s1-soft: #1c5cab; --s1-wash: rgba(57,135,229,0.14); --good-text: #0ca30c;
+  --seq-0: #262624; --seq-1: #0d366b; --seq-2: #104281; --seq-3: #184f95; --seq-4: #1c5cab; --seq-5: #2a78d6; --seq-6: #5598e7; --seq-7: #9ec5f4;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 1240px; margin: 0 auto; padding: 20px 16px 48px; }
+header { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; justify-content: space-between; margin-bottom: 16px; }
+h1 { font-size: 20px; margin: 0; letter-spacing: -0.01em; }
+h1 span { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: 8px; }
+h2 { font-size: 14px; font-weight: 600; margin: 0 0 2px; }
+.sub { color: var(--ink-2); font-size: 12px; margin: 0 0 12px; }
+.meta { color: var(--muted); font-size: 12px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+button, select { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 4px 10px; cursor: pointer; }
+button[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
+.grid { display: grid; gap: 12px; }
+.cards { grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); margin-bottom: 12px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; min-width: 0; }
+.two { grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); margin-top: 12px; }
+.label { color: var(--ink-2); font-size: 12px; }
+.big { font-size: 28px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.15; }
+.row { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.facts { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; font-size: 12px; margin-top: 10px; }
+.facts dt { color: var(--muted); }
+.facts dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.meter { position: relative; height: 10px; border-radius: 5px; background: var(--seq-0); margin: 10px 0 4px; overflow: visible; }
+.meter > i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 5px; }
+.meter > b { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--ink); border-radius: 1px; }
+.meter-legend { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; }
+.status { display: inline-flex; gap: 5px; align-items: center; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.status svg { width: 14px; height: 14px; flex: none; }
+.chip { font-size: 11px; color: var(--ink-2); border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
+.note { font-size: 11px; color: var(--muted); margin-top: 8px; }
+.delta { font-size: 12px; font-variant-numeric: tabular-nums; }
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+.chart { position: relative; width: 100%; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+#heatmap { overflow-x: auto; }
+#heatmap svg { max-width: 640px; min-width: 520px; }
+.tip { position: fixed; pointer-events: none; background: var(--surface); color: var(--ink); border: 1px solid var(--border); border-radius: 8px; padding: 6px 9px; font-size: 12px; box-shadow: 0 4px 16px rgba(0,0,0,0.12); z-index: 10; display: none; max-width: 280px; }
+.tip b { font-weight: 600; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--ink-2); margin: 4px 0 8px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.key { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.key.line { height: 2px; border-radius: 1px; width: 16px; }
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+th { text-align: left; color: var(--muted); font-weight: 500; padding: 4px 6px; border-bottom: 1px solid var(--grid); }
+td { padding: 5px 6px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bar-cell { width: 34%; }
+.hbar { height: 8px; border-radius: 0 4px 4px 0; background: var(--s1); min-width: 2px; }
+.insight { display: grid; grid-template-columns: 18px 1fr; gap: 2px 8px; padding: 8px 0; border-bottom: 1px solid var(--grid); }
+.insight:last-child { border-bottom: 0; }
+.insight .t { font-weight: 600; }
+.insight .d { grid-column: 2; color: var(--ink-2); font-size: 12px; }
+.empty { color: var(--muted); font-size: 13px; padding: 12px 0; }
+details summary { cursor: pointer; color: var(--ink-2); font-size: 12px; margin-top: 8px; }
+.err { background: var(--surface); border: 1px solid var(--critical); border-radius: 12px; padding: 12px 16px; margin-bottom: 12px; }
+.scroll { overflow-x: auto; }
+footer { color: var(--muted); font-size: 11px; margin-top: 24px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>ccpulse<span id="subtitle">Claude Code usage</span></h1>
+    <div class="meta">
+      <span id="updated">Loading…</span>
+      <button id="theme" type="button" title="Toggle theme">Theme</button>
+    </div>
+  </header>
+  <div id="error"></div>
+
+  <section aria-label="Cycles" class="grid cards" id="cycles"></section>
+  <section aria-label="Totals and forecast" class="grid cards" id="tiles"></section>
+
+  <section class="card" aria-labelledby="trend-title">
+    <div class="row" style="flex-wrap:wrap">
+      <div>
+        <h2 id="trend-title">Usage trend</h2>
+        <p class="sub" id="trend-sub"></p>
+      </div>
+      <div class="tabs" role="group" aria-label="Granularity">
+        <button type="button" data-g="hour" aria-pressed="true">Hourly</button>
+        <button type="button" data-g="day" aria-pressed="false">Daily</button>
+        <button type="button" data-g="week" aria-pressed="false">Weekly</button>
+        <button type="button" data-g="month" aria-pressed="false">Monthly</button>
+      </div>
+    </div>
+    <div class="legend" id="trend-legend"></div>
+    <div class="chart" id="trend"></div>
+    <details><summary>Show as table</summary><div class="scroll" id="trend-table"></div></details>
+  </section>
+
+  <div class="grid two">
+    <section class="card" aria-labelledby="ins-title">
+      <h2 id="ins-title">What your usage says</h2>
+      <p class="sub">Patterns ccpulse learned from your own history.</p>
+      <div id="insights"></div>
+    </section>
+    <section class="card" aria-labelledby="hm-title">
+      <h2 id="hm-title">Your typical week</h2>
+      <p class="sub" id="hm-sub">Average per hour, last 8 weeks. Darker = heavier.</p>
+      <div class="chart" id="heatmap"></div>
+    </section>
+  </div>
+
+  <div class="grid two">
+    <section class="card" aria-labelledby="an-title">
+      <h2 id="an-title">Anomalies</h2>
+      <p class="sub">Compared with the same hour of day / your usual days / the same project's sessions.</p>
+      <div class="scroll" id="anomalies"></div>
+    </section>
+    <section class="card" aria-labelledby="fc-title">
+      <h2 id="fc-title">Next 7 days</h2>
+      <p class="sub" id="fc-sub"></p>
+      <div class="scroll" id="next7"></div>
+    </section>
+  </div>
+
+  <div class="grid two">
+    <section class="card" aria-labelledby="m-title">
+      <h2 id="m-title">Models</h2>
+      <p class="sub">Last 30 days, share of usage weight.</p>
+      <div class="scroll" id="models"></div>
+    </section>
+    <section class="card" aria-labelledby="p-title">
+      <h2 id="p-title">Projects</h2>
+      <p class="sub">Last 30 days, top 12.</p>
+      <div class="scroll" id="projects"></div>
+    </section>
+  </div>
+
+  <footer id="footer">Local only. Costs are API-equivalent estimates (same basis as ccusage); plan limits come from Claude Code's usage meter when available.</footer>
+</main>
+<div class="tip" id="tip" role="status"></div>
+<script src="/app.js"></script>
+</body>
+</html>

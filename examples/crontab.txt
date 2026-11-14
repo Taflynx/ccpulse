@@ -1,0 +1,2 @@
+# crontab -e
+*/5 * * * * PATH=/usr/local/bin:/usr/bin:/bin ccpulse watch --once >> ~/.cache/ccpulse/watch.log 2>&1
