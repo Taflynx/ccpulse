@@ -5,11 +5,11 @@ import { analyze, type Analysis } from '../analysis.js';
 import { evaluate } from '../alerts.js';
 import { asset, page } from './page.js';
 
-export async function startDashboard(cfg: Config, o: { port: number; host: string; open: boolean; offline: boolean }): Promise<void> {
+export async function startDashboard(cfg: Config, o: { port: number; host: string; open: boolean; offline: boolean; demo?: boolean }): Promise<void> {
   let cached: { at: number; data: Analysis & { alerts: ReturnType<typeof evaluate> } } | undefined;
   let inflight: Promise<void> | undefined;
   const refresh = async () => {
-    const a = await analyze(cfg, { offline: o.offline });
+    const a = await analyze(cfg, { offline: o.offline, demo: o.demo });
     cached = { at: Date.now(), data: { ...a, alerts: evaluate(a, cfg) } };
   };
   await refresh();

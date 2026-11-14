@@ -34,6 +34,8 @@ export interface CycleStatus {
   safeBurnPerHour?: number;
   /** Recent burn rate in cost per hour. */
   burnPerHour: number;
+  /** Model family for per-model windows (e.g. `opus`). */
+  family?: string;
   status: 'ok' | 'watch' | 'warn' | 'critical' | 'idle';
   notes: string[];
 }
@@ -48,10 +50,17 @@ interface Ctx {
   calibration: Map<string, Calibration>;
 }
 
-function costBetween(entries: Entry[], from: number, to: number): number {
+function costBetween(entries: Entry[], from: number, to: number, family?: string): number {
   let c = 0;
-  for (let i = lowerBound(entries, from); i < entries.length && entries[i].t < to; i++) c += entries[i].cost;
+  for (let i = lowerBound(entries, from); i < entries.length && entries[i].t < to; i++)
+    if (!family || entries[i].model.includes(family)) c += entries[i].cost;
   return c;
+}
+
+/** `seven_day_opus` → `opus`: per-model windows only count that model family. */
+export function windowFamily(key: string): string | undefined {
+  const m = key.match(/_(opus|sonnet|haiku|fable)$/);
+  return m ? m[1] : undefined;
 }
 
 /** ccusage-compatible 5-hour blocks: a block starts at the floored hour of the first message after the previous block ends. */
@@ -83,8 +92,8 @@ export function parseWeeklyAnchor(spec: string, clock: Clock, now: number): numb
   return ts;
 }
 
-function burnRate(entries: Entry[], now: number, windowMs: number): number {
-  return costBetween(entries, now - windowMs, now) / (windowMs / HOUR);
+function burnRate(entries: Entry[], now: number, windowMs: number, family?: string): number {
+  return costBetween(entries, now - windowMs, now, family) / (windowMs / HOUR);
 }
 
 /** How the user is running relative to their own typical pattern over the last 24h (1 = normal). */
@@ -103,11 +112,14 @@ function finish(ctx: Ctx, c: Omit<CycleStatus, 'status' | 'pace' | 'projected' |
   if (c.limitCost && c.limitCost > 0) {
     // Short windows extrapolate the live burn rate; long windows use the learned weekly
     // profile scaled by how intense the last 24h were compared to normal.
+    // Per-model windows: the profile covers all models, so scale it by this family's recent share.
+    const all7 = costBetween(ctx.entries, ctx.now - 7 * DAY, ctx.now);
+    const share = c.family ? (all7 > 0 ? costBetween(ctx.entries, ctx.now - 7 * DAY, ctx.now, c.family) / all7 : 0) : 1;
     let futureCost: number;
     if (mode === 'short') {
       futureCost = c.burnPerHour * (remainingMs / HOUR);
     } else {
-      futureCost = ctx.profile.expectedBetween(ctx.now, c.end) * intensity(ctx);
+      futureCost = ctx.profile.expectedBetween(ctx.now, c.end) * intensity(ctx) * share;
     }
     const usedFrac = c.used ?? c.usedCost / c.limitCost;
     const costPerFrac = c.limitCost;
@@ -119,7 +131,7 @@ function finish(ctx: Ctx, c: Omit<CycleStatus, 'status' | 'pace' | 'projected' |
       if (mode === 'short') {
         out.etaFull = c.burnPerHour > 0 ? ctx.now + (need / c.burnPerHour) * HOUR : undefined;
       } else {
-        const k = intensity(ctx);
+        const k = intensity(ctx) * share;
         let acc = 0;
         for (let t = ctx.now; t < c.end; t += 15 * 60_000) {
           acc += ctx.profile.expectedBetween(t, Math.min(t + 15 * 60_000, c.end)) * k;
@@ -157,7 +169,8 @@ export function computeCycles(ctx: Ctx): CycleStatus[] {
       const len = windowLength(w.key);
       if (!len || !w.resetsAt) continue;
       const start = w.resetsAt - len;
-      const usedCost = costBetween(entries, start, now);
+      const family = windowFamily(w.key);
+      const usedCost = costBetween(entries, start, now, family);
       const used = w.utilization / 100;
       const cal = calibration.get(w.key);
       // Prefer the live ratio; for tiny readings (rounded to whole %) lean on the learned limit.
@@ -178,7 +191,8 @@ export function computeCycles(ctx: Ctx): CycleStatus[] {
             used,
             usedCost,
             limitCost,
-            burnPerHour: burnRate(entries, now, len <= DAY ? HOUR : 6 * HOUR),
+            burnPerHour: burnRate(entries, now, len <= DAY ? HOUR : 6 * HOUR, family),
+            family,
             notes,
           },
           len <= DAY ? 'short' : 'long',

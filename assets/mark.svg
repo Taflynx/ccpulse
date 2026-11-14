@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="ccpulse">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#14254a"/>
+      <stop offset="1" stop-color="#0a1226"/>
+    </linearGradient>
+    <linearGradient id="arc" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5fb4ff"/>
+      <stop offset="1" stop-color="#2a78d6"/>
+    </linearGradient>
+    <linearGradient id="pulse" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.45"/>
+      <stop offset="0.5" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#ffffff"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="30" fill="url(#bg)"/>
+  <!-- cycle track -->
+  <circle cx="64" cy="64" r="40" fill="none" stroke="#ffffff" stroke-opacity="0.10" stroke-width="9"/>
+  <!-- usage so far (~70% of the ring), starting at 12 o'clock -->
+  <circle cx="64" cy="64" r="40" fill="none" stroke="url(#arc)" stroke-width="9" stroke-linecap="round"
+          stroke-dasharray="175.9 251.3" transform="rotate(-90 64 64)"/>
+  <!-- even-pace marker (where you "should" be) -->
+  <g transform="rotate(198 64 64)">
+    <rect x="61.5" y="16" width="5" height="14" rx="2.5" fill="#ff8a5c"/>
+  </g>
+  <!-- pulse -->
+  <polyline points="33,66 45,66 51,53 60,82 69,42 76,72 81,64 89,64" fill="none" stroke="url(#pulse)"
+            stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="92" cy="64" r="6" fill="#ff8a5c"/>
+</svg>

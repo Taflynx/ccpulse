@@ -2,7 +2,7 @@ import { bucketize, groupBy } from './aggregate.js';
 import type { Analysis } from './analysis.js';
 import type { CycleStatus } from './analytics/cycle.js';
 import type { Config } from './config.js';
-import { c, money, paceBar, pct, signed, sparkline, statusBadge, table, tokens } from './render/term.js';
+import { c, money, paceBar, pct, signed, sparkline, statusBadge, table, tokens, wordWrap } from './render/term.js';
 import { pctChange } from './stats.js';
 import { Clock, duration } from './time.js';
 import { metricOf, type Entry, type Granularity, type Metric } from './types.js';
@@ -41,7 +41,7 @@ function cycleLines(cy: CycleStatus, clock: Clock, now: number, detailed: boolea
     d.push(`burn now ${money(cy.burnPerHour)}/h`);
     if (cy.safeBurnPerHour !== undefined) d.push(`sustainable ≤ ${money(cy.safeBurnPerHour)}/h`);
     lines.push('  ' + c.dim('↳ ' + d.join('  ·  ')));
-    for (const n of cy.notes) lines.push('  ' + c.dim('ⓘ ' + n));
+    for (const n of cy.notes) lines.push(c.dim(wordWrap('ⓘ ' + n, 2)));
   }
   return lines;
 }
@@ -90,7 +90,7 @@ export function renderOverview(a: Analysis, cfg: Config): string {
   const recent = a.anomalies.filter((x) => x.end > a.generatedAt - 2 * 86_400_000).slice(0, 3);
   if (recent.length) {
     out.push(c.bold('Anomalies (48h)'));
-    for (const an of recent) out.push(`  ${an.severity === 'extreme' ? c.red('▲') : c.yellow('▲')} ${an.label}  ${c.dim(an.explanation)}`);
+    for (const an of recent) out.push(`  ${an.severity === 'extreme' ? c.red('▲') : c.yellow('▲')} ${an.label}\n${c.dim(wordWrap(an.explanation, 4))}`);
     out.push('');
   }
   for (const w of a.warnings) out.push(c.yellow('⚠ ' + w));
@@ -221,7 +221,7 @@ export function renderInsights(a: Analysis, cfg: Config): string {
   for (const i of a.insights) {
     const mark = i.kind === 'warning' ? c.red('!') : i.kind === 'tip' ? c.green('➜') : i.kind === 'trend' ? c.cyan('↗') : c.blue('•');
     out.push(`${mark} ${c.bold(i.title)}`);
-    out.push(`  ${c.dim(i.detail)}`);
+    out.push(c.dim(wordWrap(i.detail, 2)));
   }
   const h = a.habits;
   out.push('');

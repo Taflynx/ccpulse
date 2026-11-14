@@ -4,8 +4,10 @@
 const $ = (id) => document.getElementById(id);
 const NS = 'http://www.w3.org/2000/svg';
 let DATA = null;
+const params = new URLSearchParams(location.search);
 let gran = 'hour';
 try { gran = localStorage.getItem('ccpulse.gran') || 'hour'; } catch (_) { /* storage blocked */ }
+if (['hour', 'day', 'week', 'month'].includes(params.get('g'))) gran = params.get('g');
 
 // ---------- formatting ----------
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -32,16 +34,18 @@ function dur(ms) {
 const fmtTime = (ts) => new Date(ts).toLocaleString([], { timeZone: DATA.timezone, weekday: 'short', hour: '2-digit', minute: '2-digit' });
 const fmtDate = (ts) => new Date(ts).toLocaleDateString([], { timeZone: DATA.timezone, month: 'short', day: 'numeric' });
 
-function niceMax(v) {
-  if (v <= 0) return 1;
-  const p = Math.pow(10, Math.floor(Math.log10(v)));
-  for (const m of [1, 2, 2.5, 5, 10]) if (m * p >= v) return m * p;
-  return 10 * p;
+/** Clean axis: a 1/2/2.5/5 step, top rounded up to a whole step, 3–6 ticks. */
+function niceScale(v) {
+  if (v <= 0) return { top: 1, step: 0.25 };
+  const raw = v / 4;
+  const p = Math.pow(10, Math.floor(Math.log10(raw)));
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * p).find((x) => x >= raw);
+  return { top: Math.ceil(v / step) * step, step };
 }
 function tickLabel(v) {
   if (DATA.metric === 'tokens') return tok(v);
   if (v >= 10000) return '$' + Math.round(v / 1000) + 'K';
-  if (v >= 1) return '$' + Math.round(v).toLocaleString();
+  if (v >= 1) return '$' + (Number.isInteger(v) ? v.toLocaleString() : v.toFixed(2));
   return '$' + v.toFixed(2);
 }
 
@@ -153,13 +157,14 @@ function renderTrend() {
   const normal = gran === 'hour' ? DATA.hourExpected : null;
   const n = series.length + forecast.length;
   const values = series.map(mval);
-  const max = niceMax(Math.max(...values, ...(normal || []), ...forecast.map((p) => p.hi * 0.8), 0));
+  const scale = niceScale(Math.max(...values, ...(normal || []), ...forecast.map((p) => p.hi * 0.8), 0));
+  const max = scale.top;
   const band = (W - L - R) / n;
   const bw = Math.min(24, Math.max(2, band - 2));
   const y = (v) => T + (H - T - B) * (1 - Math.min(v, max) / max);
   const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Usage trend' });
-  for (let i = 0; i <= 4; i++) {
-    const v = (max / 4) * i; const yy = y(v);
+  for (let i = 0; i * scale.step <= max + 1e-9; i++) {
+    const v = scale.step * i; const yy = y(v);
     el('line', { x1: L, x2: W - R, y1: yy, y2: yy, stroke: i === 0 ? 'var(--axis)' : 'var(--grid)', 'stroke-width': 1 }, svg);
     const t = el('text', { x: L - 8, y: yy + 4, 'text-anchor': 'end', 'font-size': 11, fill: 'var(--muted)' }, svg);
     t.textContent = tickLabel(v);
@@ -315,7 +320,7 @@ $('theme').addEventListener('click', () => {
   root.dataset.theme = dark ? 'light' : 'dark';
   try { localStorage.setItem('ccpulse.theme', root.dataset.theme); } catch (_) { /* ignore */ }
 });
-try { const t = localStorage.getItem('ccpulse.theme'); if (t) document.documentElement.dataset.theme = t; } catch (_) { /* ignore */ }
+try { const t = params.get('theme') || localStorage.getItem('ccpulse.theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (_) { /* ignore */ }
 let rz;
 addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => DATA && renderTrend(), 150); });
 load();

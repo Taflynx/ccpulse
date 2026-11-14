@@ -77,6 +77,7 @@ ${c.bold('OPTIONS')}
   --days <n>          Anomaly lookback in days (default 7)
   --offline           Do not query the plan meter; use learned or configured limits
   --fresh             Rebuild the log index from scratch
+  --demo              Use realistic synthetic data (try ccpulse without any logs)
   --interval <dur>    watch: 30s, 5m, 1h (default 5m)
   --once              watch: run one check and exit (for cron / launchd / systemd timers)
   --dry-run           watch: print alerts without sending or recording them
@@ -120,17 +121,18 @@ async function main(): Promise<void> {
   const cmd = args._[0] ?? 'overview';
   const json = !!f.json;
   const offline = !!f.offline;
+  const demo = !!f.demo;
   const progress = !json && process.stderr.isTTY;
   const print = (v: unknown) => console.log(JSON.stringify(v, null, 2));
 
   switch (cmd) {
     case 'overview': {
-      const a = await analyze(cfg, { offline, fresh: !!f.fresh, progress });
+      const a = await analyze(cfg, { offline, demo, fresh: !!f.fresh, progress });
       return void console.log(json ? JSON.stringify(a, null, 2) : renderOverview(a, cfg));
     }
     case 'pace':
     case 'cycle': {
-      const a = await analyze(cfg, { offline, fresh: !!f.fresh, progress });
+      const a = await analyze(cfg, { offline, demo, fresh: !!f.fresh, progress });
       return void (json ? print({ cycles: a.cycles, official: a.official, calibration: a.calibration }) : console.log(renderPace(a, cfg)));
     }
     case 'report':
@@ -141,7 +143,7 @@ async function main(): Promise<void> {
       const g = GRAN[cmd === 'report' ? (args._[1] ?? 'day') : cmd];
       if (!g) throw new Error(`unknown granularity "${args._[1]}" (hour | day | week | month)`);
       const n = typeof f.last === 'string' ? Math.max(1, parseInt(f.last, 10)) : { hour: 24, day: 30, week: 12, month: 12 }[g];
-      const { entries } = await loadEntries({ fresh: !!f.fresh, progress });
+      const entries = demo ? (await import('./demo.js')).demoData(Date.now(), cfg.timezone).entries : (await loadEntries({ fresh: !!f.fresh, progress })).entries;
       const by = f.by === 'model' || f.by === 'project' ? f.by : undefined;
       if (json) {
         const { bucketize } = await import('./aggregate.js');
@@ -154,16 +156,16 @@ async function main(): Promise<void> {
       return void console.log(renderReport(entries, cfg, g, n, by));
     }
     case 'forecast': {
-      const a = await analyze(cfg, { offline, fresh: !!f.fresh, progress });
+      const a = await analyze(cfg, { offline, demo, fresh: !!f.fresh, progress });
       return void (json ? print(a.forecast) : console.log(renderForecast(a)));
     }
     case 'anomalies': {
       const days = typeof f.days === 'string' ? parseInt(f.days, 10) : 7;
-      const a = await analyze(cfg, { offline, fresh: !!f.fresh, progress, anomalyDays: days });
+      const a = await analyze(cfg, { offline, demo, fresh: !!f.fresh, progress, anomalyDays: days });
       return void (json ? print(a.anomalies) : console.log(renderAnomalies(a)));
     }
     case 'insights': {
-      const a = await analyze(cfg, { offline, fresh: !!f.fresh, progress });
+      const a = await analyze(cfg, { offline, demo, fresh: !!f.fresh, progress });
       return void (json ? print({ insights: a.insights, habits: a.habits }) : console.log(renderInsights(a, cfg)));
     }
     case 'statusline': {
@@ -174,14 +176,14 @@ async function main(): Promise<void> {
       const { readFileSync, writeFileSync, mkdirSync, statSync } = await import('node:fs');
       const file = path.join(dirs.cache(), `statusline-${cfg.metric}.txt`);
       try {
-        if (!f.fresh && Date.now() - statSync(file).mtimeMs < 60_000) {
+        if (!f.fresh && !demo && Date.now() - statSync(file).mtimeMs < 60_000) {
           process.stdout.write(readFileSync(file, 'utf8'));
           return process.exit(0);
         }
       } catch {
         /* no cache yet */
       }
-      const a = await analyze(cfg, { offline, anomalyDays: 1 });
+      const a = await analyze(cfg, { offline, demo, anomalyDays: 1 });
       const out = renderStatusline(a) + '\n';
       mkdirSync(path.dirname(file), { recursive: true });
       writeFileSync(file, out);
@@ -192,7 +194,7 @@ async function main(): Promise<void> {
       const every = parseInterval(f.interval);
       const tick = async () => {
         try {
-          const a = await analyze(cfg, { offline, anomalyDays: 1 });
+          const a = await analyze(cfg, { offline, demo, anomalyDays: 1 });
           const candidates = evaluate(a, cfg);
           const { sent, errors } = await dispatch(candidates, cfg, { dryRun: !!f['dry-run'] });
           if (f['dry-run'] || json) for (const s of sent) console.log(json ? JSON.stringify(s) : `${s.level.toUpperCase()}  ${s.title}\n  ${s.body}`);
@@ -216,6 +218,7 @@ async function main(): Promise<void> {
         host: typeof f.host === 'string' ? f.host : '127.0.0.1',
         open: !!f.open,
         offline,
+        demo,
       });
       return;
     }

@@ -7,6 +7,7 @@ import { habits, insights, type Habits, type Insight } from './analytics/insight
 import type { Config } from './config.js';
 import { calibrate, readHistory, recordSnapshot, type Calibration } from './history.js';
 import { fetchOfficial, type OfficialResult } from './limits.js';
+import { demoData } from './demo.js';
 import { loadEntries } from './loader.js';
 import { unknownPricedModels } from './pricing.js';
 import { Clock, DAY, HOUR } from './time.js';
@@ -43,19 +44,23 @@ export interface AnalyzeOptions {
   /** Pre-loaded entries (tests, dashboard refresh). */
   entries?: Entry[];
   anomalyDays?: number;
+  /** Synthetic data (`--demo`): never touches real logs, the network or learned history. */
+  demo?: boolean;
 }
 
 export async function analyze(cfg: Config, opts: AnalyzeOptions = {}): Promise<Analysis> {
-  const entries = opts.entries ?? (await loadEntries({ fresh: opts.fresh, progress: opts.progress })).entries;
   const now = opts.now ?? Date.now();
+  const demo = opts.demo ? demoData(now, cfg.timezone) : undefined;
+  const entries = demo?.entries ?? opts.entries ?? (await loadEntries({ fresh: opts.fresh, progress: opts.progress })).entries;
   const clock = new Clock(cfg.timezone, cfg.weekStart);
   const metric = cfg.metric;
   const warnings: string[] = [];
 
   let official: OfficialResult = { ok: false, reason: 'disabled (offline or limits.useOfficial=false)' };
-  if (!opts.offline && cfg.limits.useOfficial) official = await fetchOfficial();
-  let history = readHistory();
-  if (official.ok && !official.cached) history = history.concat(recordSnapshot(official.usage, entries, history));
+  if (demo) official = { ok: true, usage: demo.official, cached: true };
+  else if (!opts.offline && cfg.limits.useOfficial) official = await fetchOfficial();
+  let history = demo ? demo.history : readHistory();
+  if (!demo && official.ok && !official.cached) history = history.concat(recordSnapshot(official.usage, entries, history));
   const calibration = calibrate(history);
 
   const metricProfile = buildProfile(entries, clock, metric, now);

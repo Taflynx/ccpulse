@@ -100,3 +100,18 @@ export function statusBadge(s: string): string {
       return c.green('● on pace');
   }
 }
+
+/** Word-wrap plain text to the terminal width (capped for readability), indenting continuation lines. */
+export function wordWrap(text: string, indent = 2, max = Math.min(process.stdout.columns || 100, 110)): string {
+  const width = Math.max(40, max - indent);
+  const out: string[] = [];
+  let line = '';
+  for (const word of text.split(/\s+/)) {
+    if (line && line.length + 1 + word.length > width) {
+      out.push(line);
+      line = word;
+    } else line = line ? `${line} ${word}` : word;
+  }
+  if (line) out.push(line);
+  return out.map((l) => ' '.repeat(indent) + l).join('\n');
+}
