@@ -1,10 +1,19 @@
 # Changelog
 
+## 0.2.1 — 2026-11-14
+
+- **New plan lineup (2026-10-30):** Max 5x → **Max**, Max 20x → **Ultra**. Ultra has no 5-hour window (verified accounts) and 10× Pro weekly usage; ccpulse no longer shows a 5-hour window on Ultra.
+- **Fable cap:** on Max and Ultra, Fable usage is tracked against half the weekly limit, as its own window with risk and alerts.
+- Plan view shows weekly allowance, 5-hour limit, Fable rule and included API credits; plan advice uses the new tier ratios.
+- Dated plan catalog (`PLAN_CATALOG` in `src/plan.ts`).
+- New logo mark.
+- Tests never read the real Claude Code login.
+
 ## 0.2.0 — 2026-11-14
 
 Plan awareness, API management and professional analytics.
 
-- **Plan detection:** Pro, Max 5x/20x, Team, Enterprise, API key, Bedrock/Vertex/Foundry. Tier, billing cycle, extra usage, auth in use (`ccpulse plan`).
+- **Plan detection:** Pro, Max, Ultra, Team, Enterprise, API key, Bedrock/Vertex/Foundry. Tier, billing cycle, extra usage, auth in use (`ccpulse plan`).
 - **Plan value and advice:** API-equivalent value of each billing cycle vs. the price, and tier advice from real weekly peaks.
 - **Monte Carlo limit risk:** the probability of hitting each limit before reset, with p10/p50/p90 and burn-down fans. Status and alerts are now driven by probability, and pace alerts stay quiet when the risk is low.
 - **Deep analytics (`ccpulse analyze`):** cost anatomy, context economics, working sessions, effort / subagent / entry-point breakdowns, weekly model mix, concentration, regime-change detection, and automatic insights from all of these.

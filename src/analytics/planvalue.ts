@@ -62,9 +62,8 @@ export function planValue(entries: Entry[], plan: PlanInfo, cfg: Config, clock: 
 }
 
 /**
- * Plan advice from real plan-meter readings: weekly peaks over the last 4 cycles. Tiers scale
- * limits roughly linearly (Max 5x ≈ ¼ of Max 20x), so a 20x user who never passes ~20% of the
- * weekly window would fit in 5x; anyone repeatedly at the wall should upgrade or enable extra usage.
+ * Plan advice from real plan-meter readings: weekly peaks over the last 4 cycles (and 5-hour
+ * stalls on Max). Weekly allowance vs. Pro: Max 5×, Ultra 10× with no 5-hour limit.
  */
 export function planAdvice(plan: PlanInfo, history: Snapshot[], value: PlanValue, now: number): PlanAdvice {
   if (plan.kind === 'api' || plan.kind === 'cloud') {
@@ -95,35 +94,46 @@ export function planAdvice(plan: PlanInfo, history: Snapshot[], value: PlanValue
     };
   const peak = Math.max(...peaks);
   const atLimit = peaks.filter((p) => p >= 0.95).length;
-  const mult = plan.multiplier;
+  // Weekly allowance vs. Pro: Pro 1, Max 5, Ultra 10. Max has a 5-hour window; Ultra has none.
+  const sessions = history.filter((s) => s.key === 'five_hour' && s.at >= now - 14 * DAY);
+  const sessionsAtLimit = new Set(sessions.filter((s) => s.utilization >= 95).map((s) => s.resetsAt)).size;
+  const p90 = quantile(peaks, 0.9);
   if (atLimit >= 2)
     return {
       verdict: 'upgrade',
       title: `You hit the weekly limit in ${atLimit} of the last ${peaks.length} weeks`,
       detail:
         plan.kind === 'pro'
-          ? 'Max 5x gives ~5× the Pro allowance.'
-          : mult === 5
-            ? 'Max 20x gives ~4× your current weekly allowance.'
+          ? 'Max gives 5× Pro usage, every 5 hours and every week ($100/month).'
+          : plan.kind === 'max'
+            ? 'Ultra doubles the weekly allowance (10× Pro) and removes the 5-hour limit ($200/month).'
             : plan.extraUsage
-              ? 'Extra usage is on, so overage is billed; watch the spend.'
-              : 'Consider enabling extra usage, or shift routine work to cheaper models.',
+              ? 'Extra usage is on, so overage is billed at API rates; watch the spend.'
+              : 'You are on the largest plan: enable extra usage (billed at API rates), or move routine work and subagents to cheaper models.',
       peakWeekly: peak,
       weeksAtLimit: atLimit,
     };
-  if (mult === 20 && quantile(peaks, 0.9) < 0.2)
+  if (plan.kind === 'max' && sessionsAtLimit >= 3)
     return {
-      verdict: 'downgrade',
-      title: `Your busiest week used ${Math.round(peak * 100)}% of the Max 20x allowance`,
-      detail: 'Max 5x has about a quarter of the limits. Your last 4 weeks would have fit with room to spare.',
+      verdict: 'upgrade',
+      title: `You hit the 5-hour limit ${sessionsAtLimit} times in two weeks`,
+      detail: 'Ultra has no 5-hour limit (verified accounts) and twice the weekly allowance. Worth it if those stalls cost you work.',
       peakWeekly: peak,
       weeksAtLimit: atLimit,
     };
-  if (mult === 5 && quantile(peaks, 0.9) < 0.15)
+  if (plan.kind === 'ultra' && p90 < 0.4)
     return {
       verdict: 'downgrade',
-      title: `Your busiest week used ${Math.round(peak * 100)}% of the Max 5x allowance`,
-      detail: 'Pro has roughly a fifth of these limits. Check that it would have covered your busiest days too.',
+      title: `Your busiest weeks used under ${Math.round(Math.max(p90, peak) * 100)}% of Ultra`,
+      detail: 'Max has half the weekly allowance (5× vs. 10× Pro) for half the price, but it adds a 5-hour limit. Check that your longest sessions would fit.',
+      peakWeekly: peak,
+      weeksAtLimit: atLimit,
+    };
+  if (plan.kind === 'max' && p90 < 0.15)
+    return {
+      verdict: 'downgrade',
+      title: `Your busiest weeks used under ${Math.round(Math.max(p90, peak) * 100)}% of Max`,
+      detail: 'Pro has a fifth of these limits for a fifth of the price. Check that it would have covered your busiest days too.',
       peakWeekly: peak,
       weeksAtLimit: atLimit,
     };

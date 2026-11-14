@@ -12,6 +12,7 @@ const SOURCE_LABEL: Record<string, string> = {
   calibrated: 'learned limit',
   configured: 'your config',
   history: 'vs. your history',
+  derived: 'estimated from weekly limit',
 };
 
 function val(v: number, m: Metric): string {

@@ -57,7 +57,7 @@ ${c.bold('USAGE')}
 
 ${c.bold('COMMANDS')}
   (none)              Overview: cycle pace, forecast, last 48h vs. normal, insights, anomalies
-  pace                Where you are in the 5-hour and weekly cycles, and how fast you burn
+  pace                Where you are in each limit window (weekly, 5-hour, Fable cap) and how fast you burn
   plan                Your plan, billing cycle, value vs. price, and plan advice
   analyze             Deep analysis: limit risk (Monte Carlo), cost anatomy, context, sessions, mix
   api [sub]           Organization API spend & management (needs an Admin API key):

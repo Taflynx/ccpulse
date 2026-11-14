@@ -26,13 +26,13 @@
 
 ---
 
-Usage limits work in cycles: a 5-hour session window and a weekly window. Knowing what you spent yesterday doesn't answer the question that matters mid-week: **am I burning faster than the cycle is moving, and when will I hit the wall?**
+Usage limits work in cycles: a weekly window on every paid plan, plus a 5-hour session window on Pro and Max (Ultra has none). Knowing what you spent yesterday doesn't answer the question that matters mid-week: **am I burning faster than the cycle is moving, and when will I hit the wall?**
 
 ccpulse answers it. It reads the logs Claude Code already writes on your machine, learns your personal rhythm, and tells you:
 
 | | |
 |---|---|
-| **🪪 What you're on** | Detects your plan (Pro, Max 5x/20x, Team, Enterprise, API, Bedrock/Vertex), tier, billing cycle and extra usage, then shows what your usage was **worth vs. what you pay** and whether a different plan fits |
+| **🪪 What you're on** | Detects your plan (Pro, Max, **Ultra**, Team, Enterprise, API, Bedrock/Vertex) and knows its rules: weekly allowance, 5-hour limit, the Fable cap and included API credits. Also, tier, billing cycle and extra usage, then shows what your usage was **worth vs. what you pay** and whether a different plan fits |
 | **⏱ Where you are in the cycle** | Used % vs. elapsed % for the session and weekly windows, and your **pace** (1.33× = burning a third faster than the clock) |
 | **🎲 Whether you'll make it** | The **probability** of hitting each limit before it resets, from 2,000 simulated futures of *your* usage, plus the likely time, the 10–90% range at reset, and a burn-down chart |
 | **🏢 Your API spend** | With an Admin key: month-to-date and month-end forecast, budgets with pace, spend by workspace, key and model, anomalies, key hygiene, and key / spend-limit management |
@@ -232,6 +232,24 @@ The meter counts everything on your account, including claude.ai and other machi
 <details><summary><b>How accurate are the forecasts?</b></summary>
 
 It depends on how regular you are, and ccpulse tells you. `ccpulse forecast` prints the average daily error and how often reality fell inside the 80% range over the last 42 days, measured out-of-sample. Weekly totals are far more predictable than single days.
+</details>
+
+<details><summary><b>Which plans does ccpulse understand?</b></summary>
+
+The current lineup from [claude.com/pricing](https://claude.com/pricing) (catalog dated 2026-11-14; Max 5x became **Max** and Max 20x became **Ultra** on 2026-10-30):
+
+| Plan | Price | 5-hour limit | Weekly limit | Fable | API credits |
+|---|---|---|---|---|---|
+| Pro | $20 ($17 billed annually) | 1× | 1× | paid with usage credits | — |
+| Max | $100 | 5× Pro | 5× Pro | up to 50% of weekly | $100/mo |
+| Ultra | $200 | **none** (verified accounts) | 10× Pro | up to 50% of weekly | $200/mo |
+
+How ccpulse uses this:
+- On Ultra it shows only the weekly window.
+- On Max and Ultra it adds an estimated **Fable cap** window (half your weekly 100% mark).
+- Plan advice compares tiers by these ratios.
+
+Anthropic changes plans from time to time. If something is off, override the price with `plan.monthlyPrice`; the catalog lives in [`src/plan.ts`](src/plan.ts).
 </details>
 
 <details><summary><b>How is the plan value computed?</b></summary>

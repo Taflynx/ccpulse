@@ -26,7 +26,7 @@ import { planAdvice, planValue, type PlanAdvice, type PlanValue } from './analyt
 import { detectPlan, type PlanInfo } from './plan.js';
 import { detectAnomalies, type Anomaly } from './analytics/anomalies.js';
 import { buildProfile } from './analytics/baseline.js';
-import { computeCycles, type CycleStatus } from './analytics/cycle.js';
+import { computeCycles, familyCapCycle, type CycleStatus } from './analytics/cycle.js';
 import { forecast, type Forecast } from './analytics/forecast.js';
 import { habits, insights, type Habits, type Insight } from './analytics/insights.js';
 import type { Config } from './config.js';
@@ -116,7 +116,8 @@ export async function analyze(cfg: Config, opts: AnalyzeOptions = {}): Promise<A
   const metricProfile = buildProfile(entries, clock, metric, now);
   const costProfile = metric === 'cost' ? metricProfile : buildProfile(entries, clock, 'cost', now);
 
-  const cycles = computeCycles({
+  const plan = demo ? demoPlan(now) : detectPlan(cfg);
+  const cycleCtx = {
     entries,
     clock,
     cfg,
@@ -124,7 +125,15 @@ export async function analyze(cfg: Config, opts: AnalyzeOptions = {}): Promise<A
     now,
     official: official.ok ? official.usage : undefined,
     calibration,
-  });
+    noSessionLimit: plan.noSessionLimit,
+  };
+  const cycles = computeCycles(cycleCtx);
+  // Max/Ultra: Fable may use up to half the weekly limit. Add it unless the meter reports it.
+  if (plan.fableWeeklyShare && !cycles.some((c) => c.key.includes('fable'))) {
+    const weekly = cycles.find((c) => c.key === 'seven_day');
+    const cap = weekly && familyCapCycle(cycleCtx, weekly, 'fable', plan.fableWeeklyShare, `Weekly (Fable, ${Math.round(plan.fableWeeklyShare * 100)}% cap)`);
+    if (cap) cycles.push(cap);
+  }
   const fc = forecast(entries, clock, metric, metricProfile, now);
   const anomalies = detectAnomalies(entries, clock, {
     metric,
@@ -139,9 +148,8 @@ export async function analyze(cfg: Config, opts: AnalyzeOptions = {}): Promise<A
   const hourFrom = clock.bucketStart(now - 47 * HOUR, 'hour');
   const hourSeries = bucketize(entries, clock, 'hour', hourFrom, now + 1);
   // Plan, value and advice.
-  const plan = demo ? demoPlan(now) : detectPlan(cfg);
   if (plan.priceSource === 'list' && plan.monthlyPrice)
-    plan.notes.push(`Using the list price $${plan.monthlyPrice}/month for value analytics; set plan.monthlyPrice if you pay a different amount.`);
+    plan.notes.push(`Using the ${plan.label} list price ($${plan.monthlyPrice}/month, catalog ${plan.catalogAsOf}); set plan.monthlyPrice if you pay a different amount.`);
   const pv = planValue(entries, plan, cfg, clock, now, fc);
   const advice = planAdvice(plan, history, pv, now);
 
@@ -281,8 +289,14 @@ const DEMO_BUDGETS = [
 function demoPlan(now: number): PlanInfo {
   return {
     kind: 'max',
-    label: 'Max 5x',
+    label: 'Max',
+    formerly: 'Max 5x',
     multiplier: 5,
+    sessionMultiplier: 5,
+    noSessionLimit: false,
+    fableWeeklyShare: 0.5,
+    apiCredits: 100,
+    catalogAsOf: '2026-11-14',
     rateLimitTier: 'default_claude_max_5x',
     billingType: 'stripe_subscription',
     extraUsage: false,

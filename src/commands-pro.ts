@@ -21,11 +21,15 @@ export function renderPlan(a: Analysis, cfg: Config): string {
     .filter(([, on]) => on)
     .map(([k]) => ({ oauth: 'Claude login', apiKeyEnv: 'API key in env', apiKeyHelper: 'apiKeyHelper', bedrock: 'Bedrock', vertex: 'Vertex', foundry: 'Foundry', customBaseUrl: 'custom base URL' })[k as 'oauth']);
   const rows: [string, string][] = [
-    ['Plan', c.bold(p.label) + (p.multiplier && p.kind === 'max' && !p.label.includes(String(p.multiplier)) ? c.dim(`  (${p.multiplier}× Pro usage tier)`) : '')],
+    ['Plan', c.bold(p.label) + (p.formerly ? c.dim(`  (formerly ${p.formerly})`) : '')],
+    ['Weekly allowance', p.multiplier ? `${p.multiplier}× Pro` : '-'],
+    ['5-hour limit', p.noSessionLimit ? c.green('none (verified accounts)') : p.sessionMultiplier ? `${p.sessionMultiplier}× Pro` : '-'],
+    ['Fable', p.fableWeeklyShare ? `included, up to ${Math.round(p.fableWeeklyShare * 100)}% of the weekly limit` : p.kind === 'pro' ? 'paid with usage credits' : '-'],
+    ['API credits', p.apiCredits ? `$${p.apiCredits}/month on the Claude Platform ${c.dim('(not usable in Claude Code)')}` : '-'],
     ['Rate-limit tier', p.rateLimitTier ?? '-'],
     ['Billing', p.billingType ? p.billingType.replace(/_/g, ' ') : '-'],
     ['Extra usage', p.extraUsage === undefined ? '-' : p.extraUsage ? c.yellow('on (overage is billed)') : 'off'],
-    ['Price used', p.monthlyPrice !== undefined ? `${money(p.monthlyPrice)}/month ${c.dim(p.priceSource === 'config' ? '(your config)' : '(list price)')}` : c.dim('unknown, set plan.monthlyPrice')],
+    ['Price used', p.monthlyPrice !== undefined ? `${money(p.monthlyPrice)}/month ${c.dim(p.priceSource === 'config' ? '(your config)' : `(list price, catalog ${p.catalogAsOf})`)}` : c.dim('unknown, set plan.monthlyPrice')],
     ['Auth in use', auth.join(', ') || '-'],
     ['Org API analytics', p.adminConfigured ? c.green('Admin API key configured') : c.dim('not configured (CCPULSE_ADMIN_KEY)')],
   ];

@@ -6,6 +6,9 @@ import { test } from 'node:test';
 
 const sandbox = mkdtempSync(path.join(tmpdir(), 'ccpulse-pro-'));
 for (const k of ['XDG_CONFIG_HOME', 'XDG_CACHE_HOME', 'XDG_STATE_HOME']) process.env[k] = path.join(sandbox, k);
+// …and never the real Claude Code login or plan.
+process.env.HOME = process.env.USERPROFILE = path.join(sandbox, 'home');
+delete process.env.CLAUDE_CONFIG_DIR;
 
 const { evaluate } = await import('./alerts.js');
 const { costAnatomy, detectChangePoint, simulateRisk, sessionStats } = await import('./analytics/advanced.js');
@@ -37,8 +40,12 @@ test('detectPlan reads plan metadata from Claude Code config without secrets', (
   try {
     const p = detectPlan(cfg());
     assert.equal(p.kind, 'max');
-    assert.equal(p.label, 'Max 5x');
+    assert.equal(p.label, 'Max');
+    assert.equal(p.formerly, 'Max 5x');
     assert.equal(p.multiplier, 5);
+    assert.equal(p.noSessionLimit, false);
+    assert.equal(p.fableWeeklyShare, 0.5);
+    assert.equal(p.apiCredits, 100);
     assert.equal(p.extraUsage, true);
     assert.equal(p.monthlyPrice, 100);
     assert.equal(p.priceSource, 'list');
@@ -128,9 +135,12 @@ test('plan advice: downgrade when a 20x plan never gets busy, upgrade when repea
   const now = Date.UTC(2026, 10, 14);
   const snaps = (peaks: number[]) =>
     peaks.flatMap((p, i) => [0.5, 1].map((f) => ({ at: now - (i * 7 + 1) * DAY, key: 'seven_day', utilization: p * 100 * f, resetsAt: now - i * 7 * DAY, localCost: 1, localTokens: 1 })));
-  const base = { kind: 'max', label: 'Max 20x', multiplier: 20, auth: {}, notes: [] } as any;
-  assert.equal(planAdvice(base, snaps([0.1, 0.12, 0.08, 0.15]), { valueProjected: 0 } as any, now).verdict, 'downgrade');
-  assert.equal(planAdvice({ ...base, multiplier: 5, label: 'Max 5x' }, snaps([1, 0.97, 0.5, 0.6]), { valueProjected: 0 } as any, now).verdict, 'upgrade');
+  const base = { kind: 'ultra', label: 'Ultra', multiplier: 10, noSessionLimit: true, auth: {}, notes: [] } as any;
+  assert.equal(planAdvice(base, snaps([0.2, 0.3, 0.25, 0.35]), { valueProjected: 0 } as any, now).verdict, 'downgrade');
+  assert.equal(planAdvice(base, snaps([0.5, 0.7, 0.6, 0.65]), { valueProjected: 0 } as any, now).verdict, 'fits');
+  const upg = planAdvice({ ...base, kind: 'max', multiplier: 5, label: 'Max' }, snaps([1, 0.97, 0.5, 0.6]), { valueProjected: 0 } as any, now);
+  assert.equal(upg.verdict, 'upgrade');
+  assert.match(upg.detail, /Ultra/);
   assert.equal(planAdvice(base, [], { valueProjected: 0 } as any, now).verdict, 'insufficient-data');
 });
 
@@ -142,4 +152,33 @@ test('alerts: probability drives limit alerts; low-risk pace stays quiet', () =>
   assert.ok(risky.some((a) => a.key.startsWith('risk:seven_day')));
   const calm = evaluate({ ...base, cycles: [cyc(0.02, 1.5)] }, cfg());
   assert.ok(!calm.some((a) => a.key.startsWith('pace:') || a.key.startsWith('risk:')));
+});
+
+test('plan catalog: Ultra is the former Max 20x with no 5-hour window', async () => {
+  const { classifyConsumer, PLAN_CATALOG } = await import('./plan.js');
+  assert.equal(classifyConsumer('claude_max', 'max', 'default_claude_max_20x', ''), 'ultra');
+  assert.equal(classifyConsumer('claude_max', 'max', 'default_claude_max_5x', ''), 'max');
+  assert.equal(classifyConsumer('', '', '', 'Ultra'), 'ultra');
+  assert.equal(classifyConsumer('claude_pro', 'pro', '', ''), 'pro');
+  assert.equal(classifyConsumer('claude_team', 'team', '', ''), 'team');
+  assert.equal(PLAN_CATALOG.plans.ultra.session, null);
+  assert.equal(PLAN_CATALOG.plans.ultra.weekly, 10);
+});
+
+test('Ultra: no invented 5-hour window; Fable cap derived from the weekly limit', async () => {
+  const { computeCycles, familyCapCycle } = await import('./analytics/cycle.js');
+  const c = new Clock('UTC');
+  const now = Date.UTC(2026, 10, 14, 12);
+  const entries: Entry[] = [];
+  for (let t = now - 20 * DAY; t < now; t += HOUR) entries.push(entry(t, 1, { model: (t / HOUR) % 2 ? 'claude-fable-5.2' : 'claude-opus-5.5' }));
+  const resetsAt = now + 3 * DAY;
+  const ctx = { entries, clock: c, cfg: cfg(), profile: buildProfile(entries, c, 'cost', now), now, calibration: new Map(), noSessionLimit: true,
+    official: { fetchedAt: now, windows: [{ key: 'seven_day', utilization: 40, resetsAt }] } };
+  const cycles = computeCycles(ctx as any);
+  assert.ok(!cycles.some((x) => x.key === 'five_hour'));
+  const weekly = cycles.find((x) => x.key === 'seven_day')!;
+  const cap = familyCapCycle(ctx as any, weekly, 'fable', 0.5, 'Weekly (Fable, 50% cap)')!;
+  assert.ok(Math.abs(cap.limitCost! - weekly.limitCost! / 2) < 1e-9);
+  assert.ok(Math.abs(cap.used! - 0.4) < 0.02, `fable used ${cap.used}`); // half the traffic against half the limit
+  assert.equal(cap.source, 'derived');
 });

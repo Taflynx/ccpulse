@@ -7,7 +7,7 @@ import { DAY, HOUR, type Clock } from '../time.js';
 import type { Entry } from '../types.js';
 import type { Profile } from './baseline.js';
 
-export type LimitSource = 'official' | 'calibrated' | 'configured' | 'history';
+export type LimitSource = 'official' | 'calibrated' | 'configured' | 'history' | 'derived';
 
 export interface CycleStatus {
   key: string;
@@ -50,6 +50,8 @@ interface Ctx {
   now: number;
   official?: OfficialUsage;
   calibration: Map<string, Calibration>;
+  /** The plan has no rolling 5-hour limit (Ultra): never invent a session window. */
+  noSessionLimit?: boolean;
 }
 
 function costBetween(entries: Entry[], from: number, to: number, family?: string): number {
@@ -161,6 +163,35 @@ function finish(ctx: Ctx, c: Omit<CycleStatus, 'status' | 'pace' | 'projected' |
   return out;
 }
 
+/**
+ * A cap on one model family expressed as a share of the weekly limit (Max/Ultra: Fable up to half
+ * the weekly limit). Derived from the weekly window's 100% mark, so it is only as good as that.
+ */
+export function familyCapCycle(ctx: Ctx, weekly: CycleStatus, family: string, share: number, label: string): CycleStatus | undefined {
+  if (!weekly.limitCost || weekly.source === 'history' || weekly.label.includes('rolling')) return undefined;
+  const limitCost = weekly.limitCost * share;
+  const usedCost = costBetween(ctx.entries, weekly.start, ctx.now, family);
+  if (usedCost <= 0) return undefined;
+  return finish(
+    ctx,
+    {
+      key: `seven_day_${family}_cap`,
+      label,
+      source: 'derived',
+      start: weekly.start,
+      end: weekly.end,
+      elapsed: weekly.elapsed,
+      used: usedCost / limitCost,
+      usedCost,
+      limitCost,
+      burnPerHour: burnRate(ctx.entries, ctx.now, 6 * HOUR, family),
+      family,
+      notes: [`Estimated: ${Math.round(share * 100)}% of the weekly limit, as the plan allows for ${family[0].toUpperCase()}${family.slice(1)}.`],
+    },
+    'long',
+  );
+}
+
 export function computeCycles(ctx: Ctx): CycleStatus[] {
   const { entries, clock, cfg, now, official, calibration } = ctx;
   const out: CycleStatus[] = [];
@@ -204,7 +235,7 @@ export function computeCycles(ctx: Ctx): CycleStatus[] {
     }
   }
 
-  if (!seen.has('five_hour')) {
+  if (!seen.has('five_hour') && !ctx.noSessionLimit) {
     const blocks = sessionBlocks(entries, clock, now - 60 * DAY);
     const active = blocks.length && blocks[blocks.length - 1].end > now ? blocks[blocks.length - 1] : undefined;
     const past = blocks.filter((b) => b !== active).map((b) => b.cost);

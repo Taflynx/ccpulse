@@ -90,7 +90,7 @@ function statusHtml(s, label) {
   if (label) return `<span class="status"><svg viewBox="0 0 14 14" style="color:${st.color}" aria-hidden="true">${st.icon}</svg>${label}</span>`;
   return `<span class="status"><svg viewBox="0 0 14 14" style="color:${st.color}" aria-hidden="true">${st.icon}</svg>${st.label}</span>`;
 }
-const SOURCE = { official: 'plan meter', calibrated: 'learned limit', configured: 'your config', history: 'vs. your history' };
+const SOURCE = { official: 'plan meter', calibrated: 'learned limit', configured: 'your config', history: 'vs. your history', derived: 'estimated' };
 
 // ---------- sections ----------
 function renderCycles() {
@@ -339,7 +339,7 @@ try { const t = params.get('theme') || localStorage.getItem('ccpulse.theme'); if
 function renderPlanBar() {
   const p = DATA.plan; const v = DATA.planValue; const adv = DATA.planAdvice;
   const items = [];
-  items.push(`<div class="item"><div class="label">Plan</div><div class="v">${esc(p.label)}</div><div class="label">${p.multiplier && !p.label.includes(String(p.multiplier)) ? p.multiplier + '× Pro tier · ' : ''}${p.extraUsage ? 'extra usage on' : 'extra usage off'}</div></div>`);
+  items.push(`<div class="item"><div class="label">Plan</div><div class="v">${esc(p.label)}</div><div class="label">${p.multiplier ? p.multiplier + '× Pro weekly · ' : ''}${p.noSessionLimit ? 'no 5-hour limit · ' : ''}${p.extraUsage ? 'extra usage on' : 'extra usage off'}</div></div>`);
   if (v.period) items.push(`<div class="item grow"><div class="label">Billing cycle · day ${v.period.day} of ${v.period.days} · renews ${fmtDate(v.period.end)}</div><div class="meter" style="margin:8px 0 2px"><i style="width:${Math.min(100, v.period.elapsed * 100)}%;background:var(--s1)"></i></div></div>`);
   items.push(`<div class="item"><div class="label">Value this cycle (API-equiv.)</div><div class="v">${money(v.valueSoFar)}${v.price ? ` <span class="label">= ${(v.valueSoFar / v.price).toFixed(1)}× the price</span>` : ''}</div><div class="label">projected ${money(v.valueProjected)}${v.price ? ` · price ${money(v.price)}/mo` : ''}</div></div>`);
   const icon = adv.verdict === 'upgrade' ? STATUS.critical : adv.verdict === 'downgrade' ? STATUS.ok : adv.verdict === 'fits' ? STATUS.ok : STATUS.watch;

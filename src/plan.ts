@@ -9,17 +9,46 @@ import type { Clock } from './time.js';
  * What the user is on, detected from Claude Code's own local config. Only plan metadata is read:
  * no tokens, e-mail addresses or names ever leave these functions.
  */
-export type PlanKind = 'pro' | 'max' | 'team' | 'enterprise' | 'api' | 'cloud' | 'unknown';
+export type PlanKind = 'free' | 'pro' | 'max' | 'ultra' | 'team' | 'enterprise' | 'api' | 'cloud' | 'unknown';
+
+/**
+ * Consumer plan catalog (claude.com/pricing). Anthropic changes plans from time to time; the
+ * catalog is dated, every value can be overridden in config, and the output says which was used.
+ * 2026-10-30: Max 5x was renamed Max, Max 20x became Ultra (10× Pro weekly, no 5-hour limit for
+ * verified accounts), and Max/Ultra gained monthly API credits and Fable up to half the weekly limit.
+ */
+export const PLAN_CATALOG = {
+  asOf: '2026-11-14',
+  source: 'https://claude.com/pricing',
+  plans: {
+    free: { label: 'Free', price: 0, session: 'limited', weekly: 'limited' },
+    pro: { label: 'Pro', price: 20, annualMonthly: 17, session: 1, weekly: 1, fable: 'usage credits' },
+    max: { label: 'Max', price: 100, session: 5, weekly: 5, fableWeeklyShare: 0.5, apiCredits: 100, formerly: 'Max 5x' },
+    ultra: { label: 'Ultra', price: 200, session: null, weekly: 10, fableWeeklyShare: 0.5, apiCredits: 200, formerly: 'Max 20x' },
+  },
+} as const;
+
+type CatalogKey = keyof typeof PLAN_CATALOG.plans;
 
 export interface PlanInfo {
   kind: PlanKind;
-  /** Human label, e.g. "Max 20x", "Pro", "API (Console)". */
+  /** Human label, e.g. "Ultra", "Max", "Pro", "API (pay as you go)". */
   label: string;
-  /** Usage multiplier vs. Pro where known (Max 5x → 5, Max 20x → 20). */
+  /** Former name when the plan was renamed (e.g. Ultra ← Max 20x). */
+  formerly?: string;
+  /** Weekly usage vs. Pro (Max → 5, Ultra → 10). */
   multiplier?: number;
+  /** 5-hour window vs. Pro; null = no 5-hour limit (Ultra, verified accounts). */
+  sessionMultiplier?: number | null;
+  /** True when the plan has no rolling 5-hour limit. */
+  noSessionLimit: boolean;
+  /** Fable may use up to this share of the weekly limit (Max, Ultra). */
+  fableWeeklyShare?: number;
+  /** Monthly Claude Platform API credits included with the plan (not usable in Claude Code). */
+  apiCredits?: number;
   rateLimitTier?: string;
   billingType?: string;
-  /** Pay-as-you-go overage beyond plan limits. */
+  /** Pay-as-you-go overage beyond plan limits, billed at API rates. */
   extraUsage?: boolean;
   subscriptionStartedAt?: number;
   seatTier?: string;
@@ -27,6 +56,7 @@ export interface PlanInfo {
   /** Monthly price used for value analytics, and where it came from. */
   monthlyPrice?: number;
   priceSource?: 'config' | 'list';
+  catalogAsOf: string;
   /** How Claude Code authenticates right now. */
   auth: {
     oauth: boolean;
@@ -42,13 +72,6 @@ export interface PlanInfo {
   notes: string[];
 }
 
-/** List prices (USD/month) used only when the user has not configured `plan.monthlyPrice`. */
-export const LIST_PRICES: Record<string, number> = {
-  pro: 20,
-  max_5x: 100,
-  max_20x: 200,
-};
-
 function readJson(file: string): any {
   try {
     return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : undefined;
@@ -63,14 +86,6 @@ function claudeJsonPath(): string {
   return path.join(homedir(), '.claude.json');
 }
 
-function tierInfo(tier?: string): { multiplier?: number; key?: string } {
-  if (!tier) return {};
-  const m = tier.match(/max_(\d+)x/);
-  if (m) return { multiplier: +m[1], key: `max_${m[1]}x` };
-  if (/pro/.test(tier)) return { multiplier: 1, key: 'pro' };
-  return {};
-}
-
 export function adminKey(cfg?: Config): string | undefined {
   const env = process.env.CCPULSE_ADMIN_KEY || process.env.ANTHROPIC_ADMIN_KEY;
   if (env) return env.trim();
@@ -82,6 +97,21 @@ export function adminKey(cfg?: Config): string | undefined {
       return undefined;
     }
   }
+  return undefined;
+}
+
+/**
+ * Map Claude Code's plan fields to the catalog. Rate-limit tiers keep their historical names
+ * (`default_claude_max_20x` is Ultra, `default_claude_max_5x` is Max), so names win when present.
+ */
+export function classifyConsumer(orgType: string, subType: string, tier: string, displayName: string): CatalogKey | 'team' | 'enterprise' | undefined {
+  const all = `${orgType} ${subType} ${displayName}`.toLowerCase();
+  if (/enterprise/.test(all)) return 'enterprise';
+  if (/team/.test(all)) return 'team';
+  if (/ultra/.test(all) || /max_20x/.test(tier)) return 'ultra';
+  if (/max/.test(all) || /max_5x/.test(tier)) return 'max';
+  if (/pro/.test(all) || /pro/.test(tier)) return 'pro';
+  if (/free/.test(all)) return 'free';
   return undefined;
 }
 
@@ -103,27 +133,18 @@ export function detectPlan(cfg: Config): PlanInfo {
     customBaseUrl: !!env.ANTHROPIC_BASE_URL,
   };
 
-  const orgType: string = account.organizationType ?? '';
-  const subType: string = oauth.subscriptionType ?? '';
   const tier: string = oauth.rateLimitTier ?? account.organizationRateLimitTier ?? account.userRateLimitTier ?? '';
-  const ti = tierInfo(tier);
+  const displayName: string = typeof account.planDisplayName === 'string' ? account.planDisplayName : '';
+  const consumer = classifyConsumer(account.organizationType ?? '', oauth.subscriptionType ?? '', tier, displayName);
 
   let kind: PlanKind = 'unknown';
   if (auth.bedrock || auth.vertex || auth.foundry) kind = 'cloud';
-  else if (/enterprise/.test(orgType) || subType === 'enterprise') kind = 'enterprise';
-  else if (/team/.test(orgType) || subType === 'team') kind = 'team';
-  else if (/max/.test(orgType) || subType === 'max') kind = 'max';
-  else if (/pro/.test(orgType) || subType === 'pro') kind = 'pro';
+  else if (consumer) kind = consumer;
   else if (auth.apiKeyEnv || auth.apiKeyHelper) kind = 'api';
 
+  const cat = kind in PLAN_CATALOG.plans ? (PLAN_CATALOG.plans as Record<string, any>)[kind] : undefined;
   let label: string;
   switch (kind) {
-    case 'max':
-      label = ti.multiplier ? `Max ${ti.multiplier}x` : 'Max';
-      break;
-    case 'pro':
-      label = 'Pro';
-      break;
     case 'team':
       label = `Team${account.seatTier ? ` (${String(account.seatTier).replace(/_/g, ' ')})` : ''}`;
       break;
@@ -136,29 +157,35 @@ export function detectPlan(cfg: Config): PlanInfo {
     case 'cloud':
       label = auth.bedrock ? 'Amazon Bedrock' : auth.vertex ? 'Google Vertex AI' : 'Microsoft Foundry';
       break;
-    default:
+    case 'unknown':
       label = 'Unknown';
+      break;
+    default:
+      label = displayName || cat.label;
   }
-  if (typeof account.planDisplayName === 'string' && account.planDisplayName && kind !== 'api' && kind !== 'cloud')
-    label = account.planDisplayName;
 
-  if ((kind === 'max' || kind === 'pro') && auth.apiKeyEnv)
+  if ((kind === 'max' || kind === 'ultra' || kind === 'pro') && auth.apiKeyEnv)
     notes.push('ANTHROPIC_API_KEY is set: Claude Code may bill the API key instead of your subscription. Unset it to use the plan.');
   if (kind === 'api' || kind === 'cloud') notes.push('Pay-as-you-go: local costs are real spend, not API-equivalent estimates.');
+  if (kind === 'ultra') notes.push('Ultra has no 5-hour limit for verified accounts; only the weekly window applies.');
+  if (cat?.apiCredits) notes.push(`Includes $${cat.apiCredits}/month in Claude Platform API credits (not usable in Claude Code).`);
 
   let monthlyPrice: number | undefined;
   let priceSource: PlanInfo['priceSource'];
   if (typeof cfg.plan?.monthlyPrice === 'number') [monthlyPrice, priceSource] = [cfg.plan.monthlyPrice, 'config'];
-  else {
-    const key = kind === 'pro' ? 'pro' : kind === 'max' ? ti.key : undefined;
-    if (key && LIST_PRICES[key] !== undefined) [monthlyPrice, priceSource] = [LIST_PRICES[key], 'list'];
-  }
+  else if (cat && typeof cat.price === 'number' && cat.price > 0) [monthlyPrice, priceSource] = [cat.price, 'list'];
 
   const started = account.subscriptionCreatedAt ? Date.parse(account.subscriptionCreatedAt) : NaN;
+  const sessionMultiplier = cat ? (cat.session === null ? null : typeof cat.session === 'number' ? cat.session : undefined) : undefined;
   return {
     kind,
     label,
-    multiplier: kind === 'max' || kind === 'pro' ? ti.multiplier : undefined,
+    formerly: cat?.formerly,
+    multiplier: cat && typeof cat.weekly === 'number' ? cat.weekly : undefined,
+    sessionMultiplier,
+    noSessionLimit: sessionMultiplier === null,
+    fableWeeklyShare: cat?.fableWeeklyShare,
+    apiCredits: cat?.apiCredits,
     rateLimitTier: tier || undefined,
     billingType: account.billingType,
     extraUsage: typeof account.hasExtraUsageEnabled === 'boolean' ? account.hasExtraUsageEnabled : undefined,
@@ -167,6 +194,7 @@ export function detectPlan(cfg: Config): PlanInfo {
     organizationRole: account.organizationRole,
     monthlyPrice,
     priceSource,
+    catalogAsOf: PLAN_CATALOG.asOf,
     auth,
     adminConfigured: !!adminKey(cfg),
     notes,

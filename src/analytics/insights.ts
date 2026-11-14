@@ -120,7 +120,7 @@ export function insights(
       id: 'peak-hours',
       kind: 'pattern',
       title: `Your peak hours: ${top.map(([hr]) => `${pad(hr)}:00`).join(', ')}`,
-      detail: `These 3 hours carry ${Math.round(share * 100)}% of a typical day's usage. Plan heavy runs around them to avoid hitting a 5-hour window early.`,
+      detail: `These 3 hours carry ${Math.round(share * 100)}% of a typical day's usage. Schedule heavy agent runs outside them to spread load across your limits.`,
       data: { hours: top.map((x) => x[0]), share },
     });
   }

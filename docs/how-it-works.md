@@ -72,7 +72,11 @@ cost = input·p_in + output·p_out + cache_write_5m·p_cw + cache_write_1h·2·p
 
 ## 3. Cycles and pace
 
-A **cycle** is a usage window with a reset: the 5-hour session window, the weekly window, and any per-model weekly window the plan meter reports (for example `seven_day_opus`).
+A **cycle** is a usage window with a reset:
+- the weekly window, on every paid plan;
+- the 5-hour session window, on Pro and Max; Ultra has no 5-hour limit for verified accounts, and ccpulse never invents one there;
+- any per-model weekly window the plan meter reports (for example `seven_day_opus`);
+- on Max and Ultra, a derived **Fable cap**: Fable may use up to half the weekly limit, so ccpulse tracks Fable usage against 50% of the weekly 100% mark. It's labeled "estimated", and the meter's own window wins if it reports one.
 
 ### Where 100% comes from
 
@@ -234,13 +238,24 @@ Environment and settings show whether Claude Code is billing an API key, an `api
 
 The price is your tier's list price unless you set `plan.monthlyPrice`.
 
-**Advice** uses real plan-meter readings: the peak utilization of each weekly cycle over the last 4 weeks. Limits scale roughly with the tier (Max 5x ≈ ¼ of Max 20x), so:
+**Plan catalog.** ccpulse ships a dated catalog of the consumer plans, from [claude.com/pricing](https://claude.com/pricing) (2026-11-14):
+
+| Plan | Price | 5-hour limit | Weekly limit | Fable | API credits |
+|---|---|---|---|---|---|
+| Pro | $20 ($17 annual) | 1× | 1× | usage credits | — |
+| Max (formerly Max 5x) | $100 | 5× Pro | 5× Pro | ≤ 50% of weekly | $100/mo |
+| Ultra (formerly Max 20x) | $200 | none (verified) | 10× Pro | ≤ 50% of weekly | $200/mo |
+
+Claude Code still reports the historical rate-limit tier names: `default_claude_max_20x` is Ultra and `default_claude_max_5x` is Max. Plan names (`planDisplayName`) take precedence when present.
+
+**Advice** uses real plan-meter readings: the peak utilization of each weekly cycle over the last 4 weeks, plus 5-hour windows that reached 95% on Max:
 
 | Situation | Advice |
 |---|---|
-| ≥ 2 of the last 4 weeks at ≥ 95% | upgrade, enable extra usage, or move routine work to cheaper models |
-| Max 20x with the 90th-percentile weekly peak < 20% | Max 5x would have covered it |
-| Max 5x with the 90th-percentile weekly peak < 15% | check Pro |
+| ≥ 2 of the last 4 weeks at ≥ 95% | Pro → Max, Max → Ultra; on Ultra, extra usage or cheaper models |
+| Max, with ≥ 3 five-hour windows at the limit in 2 weeks | Ultra removes the 5-hour limit and doubles the weekly allowance |
+| Ultra, with the 90th-percentile weekly peak < 40% | Max (half the weekly allowance), but check your longest sessions against its 5-hour limit |
+| Max, with the 90th-percentile weekly peak < 15% | Pro |
 | fewer than 2 weekly cycles observed | not enough data yet |
 
 ## 10. Limit risk: Monte Carlo

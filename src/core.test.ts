@@ -21,6 +21,9 @@ import type { Entry } from './types.js';
 // Never touch the real user's config, cache or learned history.
 const sandbox = mkdtempSync(path.join(tmpdir(), 'ccpulse-test-'));
 for (const k of ['XDG_CONFIG_HOME', 'XDG_CACHE_HOME', 'XDG_STATE_HOME']) process.env[k] = path.join(sandbox, k);
+// …and never the real Claude Code login or plan.
+process.env.HOME = process.env.USERPROFILE = path.join(sandbox, 'home');
+delete process.env.CLAUDE_CONFIG_DIR;
 
 const cfg = (over: Partial<Config> = {}): Config => ({ ...structuredClone(defaults), ...over, timezone: 'UTC' });
 
